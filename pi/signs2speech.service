@@ -1,0 +1,13 @@
+[Unit]
+Description=Signs to Speech ASL recognizer
+After=network.target sound.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/Sign2Text
+ExecStart=/home/pi/Sign2Text/.venv/bin/python pi/run.py --headless
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+# data: clips are committed via Git LFS or shared drive — decide in Week 2
+data/models/*.task
+data/models/*.onnx
+data/models/*.onnx.json
+data/models/*.keras
+data/models/*.tflite
+data/clips/**/*.npz
+
+__pycache__/
+*.pyc
+.venv/
+.env
+.ipynb_checkpoints/
+.pio/
+.vscode/
+*.log
+.DS_Store
