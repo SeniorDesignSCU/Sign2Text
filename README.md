@@ -1,7 +1,7 @@
 # Signs to Speech
 
 Edge-processed American Sign Language recognition with spoken output.
-Santa Clara University ECEN Senior Design, 2026–27 — Aditya Thakrar & Karan Velayutham.
+Santa Clara University ECEN & CSEN Cross-Disciplinary Senior Design, 2026–27 — Aditya Thakrar & Karan Velayutham.
 
 A Raspberry Pi 5 with a camera extracts hand + upper-body landmarks (MediaPipe), classifies
 word-level ASL signs with a temporal model (TFLite), and speaks the result through a speaker
