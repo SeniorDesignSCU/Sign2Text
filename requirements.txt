@@ -1,9 +1,7 @@
-# Laptop / training environment (Python 3.10-3.12)
-mediapipe>=0.10.14
-opencv-python>=4.9
+# Laptop environment: data collection (scripts/collect.py) + training (training/train.py).
+# Python 3.10-3.13. TensorFlow 2.20 ships for Windows, Linux and Apple-silicon Macs.
+mediapipe>=1.1            # also installs opencv-contrib-python; do NOT add opencv-python (they clash)
 numpy>=1.26
-tensorflow>=2.16,<2.20
+tensorflow>=2.20,<2.21    # tf.lite (TFLite export) is deprecated after 2.20 and slated for removal
 scikit-learn>=1.4
 matplotlib>=3.8
-bleak>=0.22          # BLE link to the glove
-pyserial>=3.5        # glove serial logging

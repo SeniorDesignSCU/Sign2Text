@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Laptop / Pi data-collection tool.
 
-Shows the webcam with landmarks drawn, and records labeled clips of one sign
+Shows the camera with landmarks drawn, and records labeled clips of one sign
 at a time. Runs anywhere MediaPipe runs (laptop with a webcam, or the Pi).
 
-    python scripts/collect.py --signer aditya --session s01 [--camera 0]
+    python scripts/collect.py --signer aditya --session s01             # laptop webcam / C270
+    python scripts/collect.py --signer aditya --session pi01 --camera pi  # Pi Camera Module 3
+
+All clips are recorded at 640x480 (4:3) by default to match the Pi runtime. Keep it
+that way: landmarks are normalized per axis, so a 16:9 clip looks stretched to a
+model trained on 4:3 clips. The tool refuses to record if the camera delivers a
+different aspect ratio unless you pass --allow-any-aspect.
 
 Keys:
     SPACE   start a countdown, then record one clip of the current sign
@@ -29,6 +35,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from s2s import vocab  # noqa: E402
+from s2s.camera import add_camera_args, open_camera  # noqa: E402
 from s2s.clips import ClipMeta, dataset_summary, save_clip  # noqa: E402
 from s2s.landmarks import LandmarkExtractor, draw  # noqa: E402
 
@@ -44,20 +51,32 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--signer", required=True, help="short id, e.g. aditya")
     ap.add_argument("--session", default=time.strftime("%Y%m%d"), help="session tag")
-    ap.add_argument("--camera", type=int, default=0)
-    ap.add_argument("--width", type=int, default=960)
-    ap.add_argument("--height", type=int, default=540)
+    add_camera_args(ap)
+    ap.add_argument("--allow-any-aspect", action="store_true",
+                    help="record even if the camera is not 4:3 (not recommended)")
     ap.add_argument("--max-seconds", type=float, default=2.5)
     ap.add_argument("--countdown", type=float, default=1.5)
     ap.add_argument("--handedness", default="right", choices=["right", "left"])
     ap.add_argument("--no-pose", action="store_true", help="hands only (faster)")
     args = ap.parse_args()
 
-    cap = cv2.VideoCapture(args.camera)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    if not cap.isOpened():
-        sys.exit(f"Could not open camera {args.camera}")
+    try:
+        cam = open_camera(args.camera, args.width, args.height)
+    except (RuntimeError, ValueError) as e:
+        sys.exit(str(e))
+    print(f"camera: {cam.description}")
+    ok, first = cam.read()
+    if not ok:
+        sys.exit("camera opened but returned no frame")
+    frame_h, frame_w = first.shape[:2]
+    aspect_ok = abs(frame_w / frame_h - 4 / 3) < 0.02
+    if not aspect_ok:
+        msg = (f"camera is delivering {frame_w}x{frame_h}, not 4:3. Clips must match the Pi's "
+               f"640x480. Try --width 640 --height 480")
+        if not args.allow_any_aspect:
+            cam.release()
+            sys.exit(msg + " (or pass --allow-any-aspect to record anyway).")
+        print("WARNING: " + msg)
 
     ext = LandmarkExtractor(use_pose=not args.no_pose)
     classes = vocab.ALL_CLASSES
@@ -73,7 +92,7 @@ def main():
     fps_t, fps_n, fps = time.time(), 0, 0.0
 
     while True:
-        ok, frame = cap.read()
+        ok, frame = cam.read()
         if not ok:
             break
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -110,7 +129,8 @@ def main():
                 dur = (buf_t[-1] - buf_t[0]) / 1000.0 or 1e-3
                 meta = ClipMeta(sign=sign, signer=args.signer, session=args.session,
                                 fps=len(buf_raw) / dur, n_frames=len(buf_raw),
-                                lighting=LIGHTING[lighting_i], handedness=args.handedness)
+                                lighting=LIGHTING[lighting_i], handedness=args.handedness,
+                                source=cam.source, width=frame_w, height=frame_h)
                 p = save_clip(raw, np.array(buf_t), meta)
                 last_saved = f"saved {p.name} ({len(buf_raw)} frames)"
             else:
@@ -148,7 +168,7 @@ def main():
         elif k == ord("l"):
             lighting_i = (lighting_i + 1) % len(LIGHTING)
 
-    cap.release()
+    cam.release()
     ext.close()
     cv2.destroyAllWindows()
 

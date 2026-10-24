@@ -30,7 +30,9 @@ class ClipMeta:
     n_frames: int
     lighting: str = ""
     handedness: str = "right"  # signer's dominant hand
-    source: str = "webcam"     # webcam | picam | wlasl | ...
+    source: str = "webcam"     # webcam | picam | file | wlasl | ...
+    width: int = 0             # frame size the clip was recorded at; landmarks are
+    height: int = 0            # normalized per axis, so aspect ratio must match the Pi (4:3)
     notes: str = ""
 
 

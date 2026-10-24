@@ -1,6 +1,6 @@
-# Raspberry Pi 5 runtime (venv created with --system-site-packages for picamera2/opencv)
-mediapipe>=0.10.14
-numpy>=1.26
-tflite-runtime>=2.14 ; platform_machine == "aarch64"
-bleak>=0.22
-piper-tts
+# Raspberry Pi 5 runtime. Create the venv with --system-site-packages so apt's
+# picamera2 and numpy stay visible (see pi/SETUP.md). Tested target: Raspberry Pi OS
+# 64-bit (Trixie, Python 3.13), the Raspberry Pi Imager default.
+mediapipe>=1.1            # hand + pose landmarks
+ai-edge-litert>=2.0       # TFLite interpreter for the sign classifier (replaces tflite-runtime)
+piper-tts>=1.8            # offline text-to-speech

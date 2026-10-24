@@ -3,6 +3,15 @@
 Team: Aditya, Karan Velayutham · Santa Clara University ECEN · Fall 2026 – Winter 2027
 Prepared for advisor meeting, Sept 16, 2026 · Project start Sept 22, 2026 · Working product target: Feb 28, 2027
 
+> **Status update, Oct 24, 2026**
+> - **Scope:** vision only. The glove (Nano 33 BLE Sense, flex sensors, BLE fusion) is dropped,
+>   so ignore the glove column, glove BOM rows and fusion items below.
+> - **Hardware purchased:** Raspberry Pi 5 16 GB, 27 W PSU, Active Cooler, Camera Module 3 Wide,
+>   Pi 5 camera cable, official case, SanDisk Extreme 64 GB microSD, MAX98357A I2S amp,
+>   Logitech C270 webcam, USB power bank. Still needed: a 4-8 Ω, ~3 W speaker for the amp.
+> - **Schedule:** hardware arrived in Week 5, so the Fall weeks below are being re-baselined.
+>   Bring-up steps are in [pi/SETUP.md](../pi/SETUP.md).
+
 ---
 
 ## 1. Recommended architecture

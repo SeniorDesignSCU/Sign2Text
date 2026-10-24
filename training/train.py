@@ -31,9 +31,11 @@ OUT_DIR = ROOT / "data" / "models"
 
 def load_dataset(window: int, augment_mirror: bool):
     X, y, signers = [], [], []
+    sizes: dict[tuple[int, int], int] = {}
     for _, raw, _, meta in iter_clips():
         if meta.sign not in vocab.CLASS_TO_ID:
             continue
+        sizes[(meta.width, meta.height)] = sizes.get((meta.width, meta.height), 0) + 1
         variants = [raw]
         if augment_mirror:
             variants.append(mirror_lr(raw))
@@ -43,6 +45,10 @@ def load_dataset(window: int, augment_mirror: bool):
             signers.append(meta.signer)
     if not X:
         sys.exit("No clips found under data/clips. Run scripts/collect.py first.")
+    bad = {wh: n for wh, n in sizes.items() if wh != (0, 0) and abs(wh[0] / wh[1] - 4 / 3) > 0.02}
+    if bad:
+        print(f"WARNING: {sum(bad.values())} clips were not recorded at 4:3 {sorted(bad)}; "
+              "they will look stretched relative to the Pi's 640x480. Re-record or drop them.")
     return np.stack(X), np.array(y), np.array(signers)
 
 
@@ -79,6 +85,35 @@ def build_model(window: int, n_classes: int):
     model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
                   loss="sparse_categorical_crossentropy", metrics=["accuracy"])
     return model
+
+
+def export_tflite(model) -> bytes:
+    """Keras -> .tflite for the Pi's LiteRT interpreter (ai-edge-litert).
+
+    tf.lite is deprecated from TensorFlow 2.20 on but still ships there, which is why
+    requirements.txt pins tensorflow 2.20.x. Direct conversion sometimes fails for
+    Keras 3 models, so fall back to exporting a SavedModel first.
+    """
+    import tempfile
+
+    import tensorflow as tf
+
+    if not hasattr(tf, "lite"):
+        sys.exit(f"TensorFlow {tf.__version__} has no tf.lite converter. Install the pinned "
+                 "version: pip install 'tensorflow>=2.20,<2.21'")
+
+    def configure(conv):
+        conv.optimizations = [tf.lite.Optimize.DEFAULT]
+        conv.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]  # plain LiteRT ops only
+        return conv
+
+    try:
+        return configure(tf.lite.TFLiteConverter.from_keras_model(model)).convert()
+    except Exception as e:  # noqa: BLE001
+        print(f"direct Keras conversion failed ({type(e).__name__}); trying SavedModel export")
+        with tempfile.TemporaryDirectory() as d:
+            model.export(d)
+            return configure(tf.lite.TFLiteConverter.from_saved_model(d)).convert()
 
 
 def jitter(X, rng, sigma=0.01):
@@ -118,11 +153,7 @@ def main():
     (OUT_DIR / "labels.txt").write_text("\n".join(vocab.ALL_CLASSES) + "\n")
     (OUT_DIR / "model_config.json").write_text(json.dumps({"window": args.window, "feat_dim": FEAT_DIM}))
 
-    # TFLite export (float32 first; try int8 later once accuracy is stable)
-    conv = tf.lite.TFLiteConverter.from_keras_model(model)
-    conv.optimizations = [tf.lite.Optimize.DEFAULT]
-    conv.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]  # must run on tflite-runtime
-    tfl = conv.convert()
+    tfl = export_tflite(model)
     (OUT_DIR / "sign_classifier.tflite").write_bytes(tfl)
     print(f"wrote {OUT_DIR/'sign_classifier.tflite'} ({len(tfl)/1024:.0f} KB)")
 

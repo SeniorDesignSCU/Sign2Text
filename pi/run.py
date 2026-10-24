@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Device runtime: camera -> landmarks -> sliding window -> TFLite -> debounce -> TTS.
 
-    python pi/run.py                 # Pi Camera via picamera2 if available, else /dev/video0
-    python pi/run.py --camera 0      # force a USB webcam
+    python pi/run.py                 # Pi Camera if connected, else USB webcam 0
+    python pi/run.py --camera 0      # force the USB webcam (C270)
     python pi/run.py --no-tts        # print only
 
-Speech uses Piper (offline). Install per pi/SETUP.md; the runtime shells out to
-the `piper` binary and plays through ALSA, so it works with a USB speaker or an
-I2S amp without code changes.
+Needs a trained model in data/models/ (training/train.py). Before that exists, use
+scripts/check_hw.py to test the camera, landmarks, FPS and speaker.
+
+Speech uses Piper (offline). The runtime shells out to the `piper` command and plays
+through ALSA's `aplay`, so the same code drives the MAX98357A I2S amp, a USB speaker,
+or HDMI audio; pick the output with --audio-device (see pi/SETUP.md).
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "common"))
 from s2s import vocab  # noqa: E402
+from s2s.camera import add_camera_args, open_camera  # noqa: E402
 from s2s.features import FEAT_DIM, clip_to_features, resample  # noqa: E402
 from s2s.landmarks import LandmarkExtractor, draw  # noqa: E402
 
@@ -36,8 +40,12 @@ MODEL_DIR = ROOT / "data" / "models"
 class Speaker:
     """Non-blocking Piper TTS. One utterance at a time; later ones queue."""
 
-    def __init__(self, voice: Path, enabled: bool = True):
-        self.voice, self.enabled = voice, enabled
+    def __init__(self, voice: Path, enabled: bool = True, device: str = "default", volume: float = 1.0):
+        self.voice, self.enabled, self.device, self.volume = voice, enabled, device, volume
+        self.rate = 22050
+        cfg = Path(str(voice) + ".json")
+        if cfg.exists():
+            self.rate = int(json.loads(cfg.read_text()).get("audio", {}).get("sample_rate", 22050))
         self.q: collections.deque[str] = collections.deque()
         self.lock = threading.Condition()
         threading.Thread(target=self._loop, daemon=True).start()
@@ -57,9 +65,12 @@ class Speaker:
                     self.lock.wait()
                 text = self.q.popleft()
             try:
-                p = subprocess.Popen(["piper", "--model", str(self.voice), "--output-raw"],
-                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-                a = subprocess.Popen(["aplay", "-r", "22050", "-f", "S16_LE", "-t", "raw", "-q"],
+                p = subprocess.Popen(["piper", "--model", str(self.voice), "--output-raw",
+                                      "--volume", str(self.volume)],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL)
+                a = subprocess.Popen(["aplay", "-D", self.device, "-r", str(self.rate),
+                                      "-f", "S16_LE", "-c", "1", "-t", "raw", "-q"],
                                      stdin=p.stdout)
                 p.stdin.write(text.encode()); p.stdin.close()
                 a.wait()
@@ -72,10 +83,13 @@ class Recognizer:
 
     def __init__(self, model_dir: Path, window: int, min_conf: float, stable_frames: int):
         try:
-            from tflite_runtime.interpreter import Interpreter
+            from ai_edge_litert.interpreter import Interpreter  # current name of TFLite runtime
         except ImportError:
-            import tensorflow as tf  # laptop fallback
-            Interpreter = tf.lite.Interpreter
+            try:
+                from tflite_runtime.interpreter import Interpreter  # older installs
+            except ImportError:
+                import tensorflow as tf  # laptop fallback
+                Interpreter = tf.lite.Interpreter
         self.interp = Interpreter(model_path=str(model_dir / "sign_classifier.tflite"))
         self.interp.allocate_tensors()
         self.inp = self.interp.get_input_details()[0]
@@ -115,39 +129,31 @@ class Recognizer:
         return label, conf, emitted
 
 
-def open_camera(index: int | None, w: int, h: int):
-    if index is None:
-        try:
-            from picamera2 import Picamera2  # type: ignore
-
-            cam = Picamera2()
-            cam.configure(cam.create_video_configuration(main={"size": (w, h), "format": "RGB888"}))
-            cam.start()
-            return lambda: (True, cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)), cam.stop
-        except ImportError:
-            index = 0
-    cap = cv2.VideoCapture(index)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, w); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-    return cap.read, cap.release
-
-
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--camera", type=int, default=None, help="V4L2 index; default = Pi camera")
-    ap.add_argument("--width", type=int, default=640)
-    ap.add_argument("--height", type=int, default=480)
+    add_camera_args(ap)
     ap.add_argument("--min-conf", type=float, default=0.80)
     ap.add_argument("--stable-frames", type=int, default=6)
     ap.add_argument("--voice", default=str(ROOT / "data" / "models" / "en_US-lessac-medium.onnx"))
+    ap.add_argument("--audio-device", default="default",
+                    help="ALSA output for aplay, e.g. default or plughw:CARD=MAX98357A,DEV=0")
+    ap.add_argument("--volume", type=float, default=1.0, help="speech volume multiplier")
     ap.add_argument("--no-tts", action="store_true")
     ap.add_argument("--headless", action="store_true", help="no preview window (systemd)")
     args = ap.parse_args()
 
-    cfg = json.loads((MODEL_DIR / "model_config.json").read_text())
+    cfg_path = MODEL_DIR / "model_config.json"
+    if not cfg_path.exists():
+        sys.exit("No trained model yet (data/models/model_config.json missing). Collect clips, run "
+                 "training/train.py, copy data/models/ to the Pi. To test hardware now, run "
+                 "scripts/check_hw.py instead.")
+    cfg = json.loads(cfg_path.read_text())
     rec = Recognizer(MODEL_DIR, cfg["window"], args.min_conf, args.stable_frames)
-    spk = Speaker(Path(args.voice), enabled=not args.no_tts)
+    spk = Speaker(Path(args.voice), enabled=not args.no_tts, device=args.audio_device, volume=args.volume)
     ext = LandmarkExtractor()
-    read, release = open_camera(args.camera, args.width, args.height)
+    cam = open_camera(args.camera, args.width, args.height)
+    print(f"camera: {cam.description}")
+    read, release = cam.read, cam.release
 
     sentence: list[str] = []
     fps_t, fps_n, fps = time.time(), 0, 0.0

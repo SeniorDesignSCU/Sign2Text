@@ -1,6 +1,6 @@
 """MediaPipe Tasks wrapper: one frame in -> hand + upper-body pose landmarks out.
 
-Uses the MediaPipe Tasks API (mediapipe >= 0.10), which is what Google's
+Uses the MediaPipe Tasks API (tested on mediapipe 1.1.1), which is what Google's
 Raspberry Pi examples use, so the same code runs on a laptop and on the Pi 5.
 
 Model files are downloaded by scripts/download_models.sh into data/models/.
@@ -8,13 +8,18 @@ Model files are downloaded by scripts/download_models.sh into data/models/.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
-import mediapipe as mp
+# MediaPipe's C++ core logs harmless warnings at startup; keep the console readable.
+os.environ.setdefault("GLOG_minloglevel", "2")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
+import mediapipe as mp  # noqa: E402
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
