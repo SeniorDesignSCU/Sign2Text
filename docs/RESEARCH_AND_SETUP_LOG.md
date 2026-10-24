@@ -294,30 +294,48 @@ files):
 
 ### 7.2 Assemble
 
-**A. Active Cooler**
+**A. Camera cable (do this first)**
+
+Raspberry Pi's documentation says to connect the camera cable **before** fitting the Active
+Cooler, because the cooler makes the CAM/DISP connectors harder to reach.
+- *If the cooler is already on:* the connectors are still reachable. Work from the board edge
+  with a fingernail or plastic tweezers, never a metal tool against the board.
+- Don't remove the cooler. Its push pins and thermal pads aren't meant to come off and go back
+  on.
+
+**How the latches work** (both ends use the same kind of flap):
+- **Open:** pull the flap straight out until it stops, about 1–2 mm. Then tilt it slightly away
+  from the slot. It stays attached.
+- **Close:** tilt the flap back toward the cable, then press it down until it clicks.
+
+1. **Discharge static:** touch something grounded. The camera board is static-sensitive.
+2. **Camera end:** the connector is on the back of the camera board, opposite the lens, and the
+   camera ships with a standard cable already in it.
+   1. Open the flap.
+   2. Slide the old cable straight out.
+   3. Insert the **wide** end of the Pi 5 cable (Adafruit 5818) straight and fully, with the
+      **metal contacts facing the camera board**, away from the flap.
+   4. Close the flap.
+3. **Pi end:** the two mini connectors labeled **CAM/DISP 0** and **CAM/DISP 1** sit between
+   the micro-HDMI ports and the Ethernet port. Either works for the camera.
+   1. If a thin film strip holds the flap down, peel it off.
+   2. Open the flap.
+   3. Insert the **narrow** end straight and fully, with the **metal contacts facing away from
+      the flap**.
+   4. Close the flap.
+4. **Tug test:** pull very gently on the cable at each end. It must not slide out. If it does,
+   reopen the flap and reseat it deeper and straighter.
+5. Peel the protective film off the camera lens.
+6. Route the ribbon in gentle curves, never a sharp fold or crease. Keep it away from the
+   cooler's fan blades.
+
+**B. Active Cooler** (after the camera cable)
 1. Peel the clear protective film off the cooler's thermal pads, on the underside.
 2. Line up the two spring-loaded push pins with the two mounting holes beside the processor.
    The cooler's fan cable should point toward the FAN header.
 3. Push both pins until they click. The pads should press flat on the chips.
 4. Plug the cooler's cable into the small 4-pin **FAN** connector on the board. It's keyed and
    only goes in one way, so don't force it.
-
-**B. Camera cable**
-1. **At the camera:** the Camera Module 3 comes with a cable already attached. Before removing
-   it, **note which side its contacts face.**
-   1. Gently pull the connector's latch outward about 1 mm. It slides; it doesn't come off.
-   2. Pull the old cable out.
-   3. Insert the **wide** end of the new cable the same way round.
-   4. Push the latch back in.
-2. **At the Pi:** the Pi 5 has two small connectors labeled **CAM/DISP 0** and **CAM/DISP 1**.
-   Either works.
-   1. Lift that connector's latch.
-   2. Slide the **narrow** end of the cable in straight and fully.
-   3. Press the latch down.
-   4. If the camera isn't detected in 7.4, power off and flip the cable at this end. Getting it
-      backwards doesn't damage anything; it just won't connect.
-3. Peel the protective film off the camera lens.
-4. Don't fold the ribbon sharply. Gentle curves only.
 
 **C. Case** (optional for now)
 1. Unclip the case's own fan assembly from the white frame and set it aside along with the
@@ -775,7 +793,7 @@ The glove track is gone, which frees Karan to co-own data collection and the mod
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `rpicam-hello --list-cameras` lists nothing | Power off and reseat both cable ends with latches fully closed. Flip the narrow end at the Pi. Check the camera end matches the original cable's orientation. |
+| `rpicam-hello --list-cameras` lists nothing | Power off and reseat both cable ends with the flaps clicked shut. Contacts face the camera board at the camera end, and face away from the flap at the Pi end. Make sure the cable is in fully and straight, not angled. |
 | `check_hw.py`: "no Pi camera found" | Same as above, or the venv wasn't created with `--system-site-packages` so picamera2 isn't visible. Recreate it. |
 | `numpy.dtype size changed`, picamera2 import errors | The card has the older Bookworm image. Reflash with the current default Raspberry Pi OS. |
 | `throttled=0x50005` (or other values with bits 0/2) | Under-voltage. Use the 27 W supply, not the power bank or a phone charger. |
@@ -820,6 +838,7 @@ creates two files, `en_US-lessac-medium.onnx` and `en_US-lessac-medium.onnx.json
 - Adafruit MAX98357A, Raspberry Pi usage (overlay, asound.conf, mono note): https://learn.adafruit.com/adafruit-max98357-i2s-class-d-mono-amp/raspberry-pi-usage
 - Raspberry Pi Connect documentation: https://www.raspberrypi.com/documentation/services/connect.html
 - Raspberry Pi 5 Case (built-in fan and heatsink): https://www.raspberrypi.com/products/raspberry-pi-5-case/
+- Raspberry Pi camera documentation (cable orientation, latches, camera before Active Cooler): https://www.raspberrypi.com/documentation/accessories/camera.html
 - What's new in TensorFlow 2.20 (tf.lite deprecation): https://blog.tensorflow.org/2025/08/whats-new-in-tensorflow-2-20.html
 - PyPI pages checked Oct 24, 2026 for versions and wheel platforms: https://pypi.org/project/mediapipe/ · https://pypi.org/project/ai-edge-litert/ · https://pypi.org/project/tflite-runtime/ · https://pypi.org/project/piper-tts/ · https://pypi.org/project/tensorflow/
 - SunFounder MediaPipe setup (the outdated "no Python 3.13" advice): https://docs.sunfounder.com/projects/ai-lab-kit/en/latest/mediapipe/mp_0_setup.html

@@ -28,18 +28,30 @@ the CSI camera, but not for development.
 
 ## 1. Assemble (power unplugged)
 
-1. **Cooler.** Peel the film off the Active Cooler's thermal pads. Push its two spring pins into
+Raspberry Pi's own docs say to connect the camera **before** the Active Cooler, because the
+cooler makes the camera connectors harder to reach. If the cooler is already on, the connectors
+are still usable, just tighter; work slowly with a fingernail or plastic tweezers. Don't remove
+the cooler, because its push pins and thermal pads aren't meant to come off and go back on.
+
+1. **Camera cable.** Touch something grounded first, since the camera is static-sensitive. The
+   connector on each end has a flap (the latch).
+   - **To open a flap:** pull it out until it stops, about 1-2 mm, then tilt it slightly away
+     from the opening.
+   - **To close a flap:** tilt it back toward the cable and press it down until it clicks.
+   - **At the camera** (the connector on the back, opposite the lens): open the flap and slide
+     out the standard cable that came attached. Insert the **wide** end of the Pi 5 cable with
+     the **metal contacts facing the camera board**, away from the flap, then close the flap.
+   - **At the Pi:** use either connector labeled **CAM/DISP 0** or **CAM/DISP 1**. They're
+     between the micro-HDMI ports and the Ethernet port. If a thin film strip is holding the
+     flap down, remove it. Open the flap, insert the **narrow** end straight and fully with the
+     **metal contacts facing away from the flap**, then close the flap.
+   - Tug the cable very gently at each end. It shouldn't move. If it does, reopen the flap and
+     reseat it.
+2. **Cooler.** Peel the film off the Active Cooler's thermal pads. Push its two spring pins into
    the board's mounting holes until they click, and plug its cable into the 4-pin **FAN** header.
    The Pi has one fan header, so leave out the case's own fan and its small stick-on heatsink.
    The fan assembly unclips from the case frame. If the case lid doesn't sit flat over the
    cooler, run with the lid off for now.
-2. **Camera.** The camera ships with a standard-width cable already attached, which doesn't fit
-   the Pi 5. Note which way its contacts face, slide the camera connector's latch out, swap in
-   the Adafruit 22-pin to 15-pin cable the same way round, and close the latch.
-   The cable's narrow end goes into one of the Pi 5's two small connectors marked CAM/DISP. For each
-   connector, lift the latch, push the cable in straight and fully, then press the latch down.
-   If step 3 finds no camera, power off and flip the cable at the Pi end. Inserting it the wrong
-   way round doesn't damage anything.
 3. Peel the protective film off the camera lens.
 
 ## 2. Flash the SD card (on a laptop)
@@ -247,8 +259,9 @@ To speak during recognition: `python pi/run.py --speak`. For boot-to-app, add `-
 
 ## Troubleshooting
 
-- **`rpicam-hello --list-cameras` shows nothing.** Power off, reseat both ends of the ribbon, and
-  flip the narrow end if needed. Make sure the latches are fully closed.
+- **`rpicam-hello --list-cameras` shows nothing.** Power off and reseat both ends of the ribbon.
+  Check the contacts: they face the camera board at the camera end, and face away from the flap
+  at the Pi end. Make sure both flaps clicked shut and the cable is pushed in fully and straight.
 - **`numpy.dtype size changed` or a picamera2 import error.** The SD card is on the older
   Bookworm image, where pip's newer numpy clashes with apt's. Reflash with the current default
   Raspberry Pi OS (step 2).
