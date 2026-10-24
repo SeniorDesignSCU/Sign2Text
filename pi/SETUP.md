@@ -28,8 +28,10 @@ the CSI camera, but not for development.
    The Pi has one fan header, so leave out the case's own fan and its small stick-on heatsink.
    The fan assembly unclips from the case frame. If the case lid doesn't sit flat over the
    cooler, run with the lid off for now.
-2. **Camera.** The cable has a narrow end and a wide end. The narrow end goes into one of the
-   Pi 5's two small connectors marked CAM/DISP. The wide end goes into the camera. For each
+2. **Camera.** The camera ships with a standard-width cable already attached, which doesn't fit
+   the Pi 5. Note which way its contacts face, slide the camera connector's latch out, swap in
+   the Adafruit 22-pin to 15-pin cable the same way round, and close the latch.
+   The cable's narrow end goes into one of the Pi 5's two small connectors marked CAM/DISP. For each
    connector, lift the latch, push the cable in straight and fully, then press the latch down.
    If step 3 finds no camera, power off and flip the cable at the Pi end. Inserting it the wrong
    way round doesn't damage anything.
@@ -114,7 +116,9 @@ the plan.
 
 ## 6. Audio: MAX98357A amp and Piper voice
 
-**Wire the amp** (power off). Leave the amp's SD and GAIN pins unconnected.
+**Wire the amp** (power off). Leave the amp's SD and GAIN pins unconnected. With the GPIO
+header along the top edge and the USB ports on the right, pins 1 and 2 are at the left end, and
+even-numbered pins are in the outer row. Run `pinout` on the Pi to see a diagram and confirm.
 
 | Amp pin | Pi GPIO | Physical pin |
 |---|---|---|
