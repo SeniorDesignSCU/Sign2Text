@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Hardware bring-up check. Run this before anything else on a new Pi (or laptop).
 
-    python scripts/check_hw.py                  # camera + landmarks, preview window, press q to stop
-    python scripts/check_hw.py --headless       # same over SSH: prints FPS / detections for 20 s
+    python scripts/check_hw.py --web            # over SSH: watch camera + landmarks in a laptop browser
+    python scripts/check_hw.py                  # over SSH with no --web: prints FPS / detections for 20 s
     python scripts/check_hw.py --hands-only     # compare FPS without the pose model
     python scripts/check_hw.py --camera 0       # test the USB webcam (C270) instead of the Pi camera
-    python scripts/check_hw.py --speaker        # say a test sentence through the speaker
+    python scripts/check_hw.py --web --captions # the caption page with demo words, before any model exists
+    python scripts/check_hw.py --speaker        # say a test sentence (later, once a speaker is wired)
     python scripts/check_hw.py --speaker --audio-device plughw:CARD=MAX98357A,DEV=0
 
 What "pass" means (targets from docs/PROJECT_OBJECTIVES.md):
@@ -56,9 +57,9 @@ def system_info() -> None:
 
 def check_camera(args) -> int:
     import cv2
-    import numpy as np  # noqa: F401  (ensures numpy imports cleanly alongside cv2)
 
     from s2s.camera import open_camera
+    from s2s.display import CaptionView, Transcript, has_display
     from s2s.landmarks import HAND_MODEL, POSE_MODEL, LandmarkExtractor, draw
 
     print("== camera + landmarks")
@@ -73,17 +74,37 @@ def check_camera(args) -> int:
         print("  FAIL:", e)
         return 1
     print("  camera     :", cam.description)
-
     ext = LandmarkExtractor(use_pose=not args.hands_only)
     print("  models     :", "hands only" if args.hands_only else "hands + pose")
-    if not args.headless:
-        print("  preview window open. Stand ~1 m back, raise both hands. Press q to stop.")
+
+    # Where the picture goes: a local window if a monitor session exists, a browser page with --web.
+    window = not args.headless and has_display()
+    if not args.headless and not window and not args.web:
+        print("  no monitor session (plain SSH), so no window. Add --web to watch from a laptop browser.")
+    web = None
+    if args.web:
+        from s2s.webview import WebView
+        web = WebView(port=args.port)
+        print("  browser    : open " + "  or  ".join(web.urls()) + "  (press Show camera)")
+    timed = not window and not web          # nothing to look at -> run for --seconds and report
+    if args.seconds_set or timed:
+        print(f"  running for {args.seconds:.0f} s" + ("" if timed else " (or until q / Ctrl+C)"))
+    else:
+        print("  stand ~1 m back, raise both hands. Stop with " + ("q in the window or " if window else "") + "Ctrl+C.")
+
+    transcript = Transcript(sentence_timeout=0)
+    view = CaptionView(show_preview=not args.no_preview, fullscreen=args.fullscreen) if window and args.captions else None
+    demo_words = ["HELLO", "ME", "NAME", "SPEAK", "THANK_YOU", "FRIEND", "SPEAK",
+                  "WHERE", "BATHROOM", "PLEASE", "SPEAK", "CLEAR"]
+    demo_i, next_demo = 0, time.time() + 1.2
+    if args.captions:
+        print("  captions   : demo words cycling every 1.2 s (no model involved)")
+    status = "hardware check" + (", demo words" if args.captions else "")
 
     frames = hands = poses = 0
     fps_samples: list[float] = []
     t_start = t_win = time.time()
-    n_win = 0
-    shape = None
+    n_win, shape = 0, None
     try:
         while True:
             ok, frame = cam.read()
@@ -99,32 +120,54 @@ def check_camera(args) -> int:
 
             now = time.time()
             if now - t_win >= 1.0:
-                fps = n_win / (now - t_win)
-                fps_samples.append(fps)
+                fps_samples.append(n_win / (now - t_win))
                 n_win, t_win = 0, now
-                if args.headless:
+                if not window:
                     flags = ("L" if lm.left_present else "-") + ("R" if lm.right_present else "-") + \
                             ("P" if lm.pose_present else "-")
-                    print(f"  {fps:5.1f} FPS   detected now: {flags}")
+                    print(f"  {fps_samples[-1]:5.1f} FPS   detected now: {flags}")
+            cur = fps_samples[-1] if fps_samples else 0.0
 
-            if not args.headless:
+            if args.captions and now >= next_demo:
+                transcript.push(demo_words[demo_i % len(demo_words)], now)
+                demo_i, next_demo = demo_i + 1, now + 1.2
+            demo_label = transcript.last_word.upper() if args.captions and transcript.last_word else ""
+
+            if window or web:
                 draw(frame, lm)
-                cur = fps_samples[-1] if fps_samples else 0.0
+            if web:
+                if args.captions:
+                    for c in web.pop_commands():
+                        transcript.clear_all() if c == "clear" else transcript.finish()
+                web.update(transcript, demo_label, 0.9 if demo_label else 0.0, cur, status, frame)
+            if view:
+                key = view.show(view.render(transcript, frame, demo_label, 0.9 if demo_label else 0.0,
+                                            cur, status=status))
+            elif window:
                 color = (0, 200, 0) if cur >= FPS_TARGET else (0, 0, 255)
                 cv2.putText(frame, f"{cur:.1f} FPS (target {FPS_TARGET:.0f})", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
                 cv2.imshow("check_hw", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-            if args.headless and now - t_start >= args.seconds:
+                key = cv2.waitKey(1) & 0xFF
+            else:
+                key = -1
+            if key == ord("q"):
+                break
+            if key == ord("f") and view:
+                view.toggle_fullscreen()
+            if (args.seconds_set or timed) and now - t_start >= args.seconds:
                 break
     except KeyboardInterrupt:
         pass
     finally:
         cam.release()
         ext.close()
-        if not args.headless:
+        if view:
+            view.close()
+        elif window:
             cv2.destroyAllWindows()
+        if web:
+            web.close()
 
     if not frames:
         return 1
@@ -133,13 +176,16 @@ def check_camera(args) -> int:
     h, w = shape[:2]
     print("== result")
     print(f"  frames {frames} at {w}x{h}, average {avg:.1f} FPS -> "
-          f"{'PASS' if avg >= FPS_TARGET else 'BELOW TARGET (see SETUP.md > Performance)'}")
+          f"{'PASS' if avg >= FPS_TARGET else 'BELOW TARGET (see SETUP.md > Troubleshooting)'}")
     print(f"  hands seen in {100 * hands / frames:.0f}% of frames, "
           + ("pose off (--hands-only)" if args.hands_only else f"pose in {100 * poses / frames:.0f}%"))
     if abs(w / h - 4 / 3) > 0.02:
         print("  NOTE: frame is not 4:3; record and run at 640x480 so training data matches the Pi")
     if hands == 0:
-        print("  NOTE: no hands detected at all. Check lighting, distance, and that the lens cap/film is off.")
+        print("  NOTE: no hands detected at all. Check lighting, distance, and that the lens film is off.")
+    if shutil.which("vcgencmd"):
+        print("  temperature:", sh(["vcgencmd", "measure_temp"]).replace("temp=", ""),
+              "| throttled:", sh(["vcgencmd", "get_throttled"]).replace("throttled=", ""))
     return 0
 
 
@@ -182,14 +228,23 @@ def main() -> int:
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_camera_args(ap)
-    ap.add_argument("--headless", action="store_true", help="no window; print stats (for SSH)")
-    ap.add_argument("--seconds", type=float, default=20, help="headless run length")
+    ap.add_argument("--headless", action="store_true", help="never open a local window")
+    ap.add_argument("--seconds", type=float, default=None,
+                    help="stop after this many seconds (default 20 when there's nothing to watch)")
+    ap.add_argument("--web", action="store_true", help="serve the live view to a laptop browser")
+    ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--hands-only", action="store_true", help="skip the pose model")
+    ap.add_argument("--captions", action="store_true", help="show the caption screen with demo words")
+    ap.add_argument("--fullscreen", action="store_true", help="local window with --captions: fill the display")
+    ap.add_argument("--no-preview", action="store_true", help="local window with --captions: text only")
     ap.add_argument("--speaker", action="store_true", help="test audio output instead of the camera")
     ap.add_argument("--audio-device", default="default", help="ALSA device for aplay")
     ap.add_argument("--voice", default=str(DEFAULT_VOICE))
     ap.add_argument("--volume", type=float, default=1.0)
     args = ap.parse_args()
+    args.seconds_set = args.seconds is not None
+    if not args.seconds_set:
+        args.seconds = 20.0
 
     system_info()
     return check_speaker(args) if args.speaker else check_camera(args)

@@ -8,7 +8,11 @@ Prepared for advisor meeting, Sept 16, 2026 · Project start Sept 22, 2026 · Wo
 >   so ignore the glove column, glove BOM rows and fusion items below.
 > - **Hardware purchased:** Raspberry Pi 5 16 GB, 27 W PSU, Active Cooler, Camera Module 3 Wide,
 >   Pi 5 camera cable, official case, SanDisk Extreme 64 GB microSD, MAX98357A I2S amp,
->   Logitech C270 webcam, USB power bank. Still needed: a 4-8 Ω, ~3 W speaker for the amp.
+>   Logitech C270 webcam, USB power bank. No display hardware will be bought.
+> - **Output for now: on-screen text.** The Pi serves a live caption page that a laptop browser
+>   opens over the network (the laptop is only a screen; all processing stays on the Pi). Speech
+>   through the amp is deferred until a 4-8 Ω, ~3 W speaker and jumper wires are bought; the code
+>   supports it behind `--speak`.
 > - **Schedule:** hardware arrived in Week 5, so the Fall weeks below are being re-baselined.
 >   Bring-up steps are in [pi/SETUP.md](../pi/SETUP.md).
 

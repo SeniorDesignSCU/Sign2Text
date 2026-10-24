@@ -4,9 +4,11 @@ Edge-processed American Sign Language recognition with spoken output.
 Santa Clara University ECEN & CSEN Cross-Disciplinary Senior Design, 2026–27 — Aditya Thakrar & Karan Velayutham.
 
 A Raspberry Pi 5 with a camera extracts hand + upper-body landmarks (MediaPipe), classifies
-word-level ASL signs with a temporal model (TFLite), and speaks the result through a speaker
-(Piper TTS) through a MAX98357A I2S amp. Vision only (the glove was dropped in October 2026).
-Everything runs on-device; no cloud.
+word-level ASL signs with a temporal model (TFLite), and shows the result as live captions.
+The Pi serves a caption page that any laptop or phone on the same network opens at
+`http://s2s.local:8000`; the laptop is only a screen. Spoken output (Piper TTS through a
+MAX98357A I2S amp) is built in but switched off until the speaker hardware is added (`--speak`).
+Vision only (the glove was dropped in October 2026). All recognition runs on the Pi; no cloud.
 
 - **Objectives:** [docs/PROJECT_OBJECTIVES.md](docs/PROJECT_OBJECTIVES.md)
 - **Plan, BOM, schedule:** [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
@@ -15,7 +17,8 @@ Everything runs on-device; no cloud.
 
 ## Layout
 ```
-common/s2s/      shared library: camera, landmark extraction, features, clip I/O, vocabulary
+common/s2s/      shared library: camera, landmarks, features, clips, vocabulary,
+                 display (captions + sentence logic), webview (caption page for a laptop browser)
 scripts/         check_hw.py (hardware test), collect.py (data collection), download_models.sh
 training/        train.py -> data/models/sign_classifier.tflite
 pi/              run.py device runtime, SETUP.md, systemd unit
@@ -27,8 +30,8 @@ docs/            objectives, plan
 
 Two tracks run in parallel. Neither blocks the other.
 
-**On the Pi:** follow [pi/SETUP.md](pi/SETUP.md) to `scripts/check_hw.py` passing (camera,
-landmarks at 10 FPS or more, speaker).
+**On the Pi:** follow [pi/SETUP.md](pi/SETUP.md) until `scripts/check_hw.py --web` passes
+(camera, landmarks at 10 FPS or more, caption page visible on your laptop).
 
 **On each laptop (data collection, the critical path):** use Python 3.10-3.13.
 ```bash
@@ -48,7 +51,8 @@ python training/train.py
 which writes `data/models/sign_classifier.tflite`, `labels.txt`, and a confusion matrix.
 
 ## Run on the device
-See [pi/SETUP.md](pi/SETUP.md). `python pi/run.py` does camera → landmarks → sliding window → TFLite → debounce → speech.
+See [pi/SETUP.md](pi/SETUP.md). `python pi/run.py` does camera → landmarks → sliding window → TFLite → debounce →
+captions on `http://s2s.local:8000` (plus speech with `--speak`).
 
 ## How this differs from single-frame fingerspelling systems
 Per-frame landmarks are normalized to the **signer's shoulders**, not the hand's bounding box,

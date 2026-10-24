@@ -1,4 +1,5 @@
-# Boot-to-app service. The part after @ is your Pi username:
+# Boot-to-app service: starts recognition and the caption page (http://s2s.local:8000) at boot.
+# Add --speak to ExecStart once the speaker is wired. The part after @ is your Pi username:
 #   sudo cp pi/signs2speech@.service /etc/systemd/system/
 #   sudo systemctl enable --now signs2speech@$USER
 [Unit]

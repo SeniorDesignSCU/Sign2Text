@@ -2,20 +2,25 @@
 
 Written for the team's actual parts: Raspberry Pi 5 16 GB, 27 W USB-C power supply, Active Cooler,
 Camera Module 3 Wide + Pi 5 camera cable, official Pi 5 case, SanDisk Extreme 64 GB microSD,
-Adafruit MAX98357A I2S amp, Logitech C270 webcam, USB power bank. Vision only, no glove.
+Adafruit MAX98357A I2S amp (for later), Logitech C270 webcam, USB power bank. Vision only, no glove.
+
+**The screen is a laptop.** The Pi runs everything and serves a live caption page that you open in
+the laptop's browser at `http://s2s.local:8000`. There's no display hardware to buy. Speech
+through the amp and a speaker comes later (step 9).
 
 Each step ends with a check. Don't move on until the check passes.
 
 ## 0. Before you start
 
-**Still needed**
-- **A speaker for the amp.** The MAX98357A makes no sound on its own. Use a 4 Ω or 8 Ω speaker
-  rated about 3 W. Bare wires or a JST plug are fine, because the amp has a screw terminal.
-- **Header pins soldered onto the amp**, plus 5 female-to-female jumper wires. The header and
-  the terminal block come in the bag with the amp.
-- **Either** a micro-HDMI to HDMI cable plus a monitor, keyboard and mouse (the Pi 5 has
-  micro-HDMI ports, not full-size), **or** just a laptop. Everything here works over SSH, and
-  you can see the camera preview through Raspberry Pi Connect (step 3).
+**Needed now:** nothing beyond what you have, plus a laptop on the same network as the Pi.
+No monitor, keyboard or mouse; everything is done over SSH and the browser page.
+
+**Later, for speech (step 9):** a 4 Ω or 8 Ω, ~3 W speaker, 5 female-to-female jumper wires, and
+the amp's header pins and screw terminal soldered on.
+
+**Network.** The laptop must be able to reach the Pi. Campus Wi-Fi often blocks devices from
+talking to each other, so use a phone hotspot (both devices on it) or the Pi's own hotspot
+(step 6).
 
 **Power.** Use the 27 W supply on the bench. Most power banks can't provide 5 V at 5 A. On one,
 the Pi boots with a power warning and limits its USB ports to 600 mA. That's fine for demos with
@@ -69,10 +74,9 @@ sudo reboot
 rpicam-hello --list-cameras       # must list: imx708_wide
 ```
 
-To see live video, there are two options:
-- **Monitor attached:** run `rpicam-hello -t 10000`.
-- **Laptop only:** run `rpi-connect on && rpi-connect signin`, open the URL it prints, then use
-  "Screen sharing" at connect.raspberrypi.com.
+You'll see live video in your laptop's browser in step 5. Optionally, for the full Pi desktop
+on your laptop, run `rpi-connect on && rpi-connect signin`, open the URL it prints, and use
+"Screen sharing" at connect.raspberrypi.com.
 
 **C270 webcam (optional):** plug it into a blue USB port.
 **Check:** `ls /dev/video*` shows new devices and `lsusb | grep -i logitech` finds it.
@@ -98,13 +102,14 @@ Run `source ~/Sign2Text/.venv/bin/activate` in every new terminal before running
 ## 5. Hardware check: camera, landmarks, FPS
 
 ```bash
-python scripts/check_hw.py                 # preview window (monitor or Connect screen sharing)
-python scripts/check_hw.py --headless      # over plain SSH: prints FPS every second for 20 s
+python scripts/check_hw.py --web           # then open http://s2s.local:8000 on the laptop, press "Show camera"
+python scripts/check_hw.py                 # no browser: prints FPS every second for 20 s, then a result
 python scripts/check_hw.py --hands-only    # FPS without the pose model, for comparison
 python scripts/check_hw.py --camera 0      # same test on the C270
 ```
 
-Stand about 1 m from the camera and raise both hands.
+Stand about 1 m from the camera and raise both hands. With `--web`, the browser shows the camera
+with landmarks drawn and the live FPS. Press Ctrl+C in the SSH window to stop and get the result.
 
 **Check:**
 - The average is **10 FPS or more**, which is the project target.
@@ -114,7 +119,71 @@ Stand about 1 m from the camera and raise both hands.
 Write down the FPS numbers. They go in the weekly report and settle the AI HAT+ question from
 the plan.
 
-## 6. Audio: MAX98357A amp and Piper voice
+## 6. Captions on your laptop
+
+```bash
+python scripts/check_hw.py --web --captions
+```
+Open `http://s2s.local:8000` on the laptop. It shows the real caption page with demo words cycling
+every 1.2 s; no model is involved yet. Use this to check readability from across a room.
+
+**Page controls:**
+- **Show camera** (`v`): the live camera view with landmarks.
+- **New line** (space): finishes the current line.
+- **Clear** (`c`): empties the captions.
+- **Fullscreen** (`f`): fills the laptop screen; use it for demos.
+- The dot at the top turns green when the page is connected to the Pi.
+
+**Check:** the page loads, says "live", and the demo words appear. If `s2s.local` doesn't load, use
+the IP address printed in the SSH window, e.g. `http://192.168.1.23:8000`.
+
+**If the page won't load on campus Wi-Fi**, the network is blocking device-to-device traffic. Use
+either of these:
+- **Phone hotspot:** connect both the Pi and the laptop to it. Add the hotspot as a second Wi-Fi
+  network on the Pi with `sudo nmtui`, under "Activate a connection".
+- **Pi's own hotspot**, the most reliable option for demos:
+  ```bash
+  sudo nmcli device wifi hotspot ifname wlan0 ssid S2S-Demo password "pick-a-password"
+  ```
+  Join `S2S-Demo` from the laptop and open `http://10.42.0.1:8000` (`s2s.local` usually works too).
+  The Pi leaves its normal Wi-Fi while the hotspot is on, so SSH in over the hotspot. Turn it off
+  with `sudo nmcli connection down Hotspot`.
+
+The page shows the camera to anyone on the same network who opens the address. Prefer a hotspot
+for demos with test participants.
+
+## 7. Run the recognizer (after the first model is trained)
+
+Train on a laptop (see the README), then copy `data/models/` to the Pi:
+```bash
+scp data/models/sign_classifier.tflite data/models/labels.txt data/models/model_config.json \
+    $USER@s2s.local:~/Sign2Text/data/models/
+```
+
+Then run:
+```bash
+python pi/run.py              # captions at http://s2s.local:8000; words also print in the SSH window
+python pi/run.py --camera 0   # with the C270 instead of the Pi camera
+```
+
+Signs show up as words on the page. SPEAK finishes the line, a pause of 5 s or more starts a new
+line (`--sentence-timeout`), and CLEAR empties it. You can also use the page's buttons.
+
+## 8. Boot-to-app (Winter Week 14)
+
+```bash
+sudo cp pi/signs2speech@.service /etc/systemd/system/
+sudo systemctl enable --now signs2speech@$USER
+journalctl -u signs2speech@$USER -f
+```
+After a reboot the caption page comes up on its own. Open `http://s2s.local:8000` once the Pi has
+booted; no login is needed.
+
+
+## 9. Later: speech through the amp and a speaker
+
+Do this once the speaker and jumper wires are on hand. Until then, speech is off and the captions
+are the output. After this step, add `--speak` to `pi/run.py` to speak each word as well.
 
 **Wire the amp** (power off). Leave the amp's SD and GAIN pins unconnected. With the GPIO
 header along the top edge and the USB ports on the right, pins 1 and 2 are at the left end, and
@@ -173,30 +242,8 @@ python scripts/check_hw.py --speaker
 - **No sound:** try `--audio-device plughw:CARD=MAX98357A,DEV=0` to bypass the config file, then
   recheck the wiring.
 
-Before the speaker arrives, you can test with a monitor's speakers:
-`python scripts/check_hw.py --speaker --audio-device default`.
-
-## 7. Run the recognizer (after the first model is trained)
-
-Train on a laptop (see the README), then copy `data/models/` to the Pi:
-```bash
-scp data/models/sign_classifier.tflite data/models/labels.txt data/models/model_config.json \
-    $USER@s2s.local:~/Sign2Text/data/models/
-```
-
-Then run:
-```bash
-python pi/run.py              # preview window
-python pi/run.py --headless   # SSH / no screen
-```
-
-## 8. Boot-to-app (Winter Week 14)
-
-```bash
-sudo cp pi/signs2speech@.service /etc/systemd/system/
-sudo systemctl enable --now signs2speech@$USER
-journalctl -u signs2speech@$USER -f
-```
+To speak during recognition: `python pi/run.py --speak`. For boot-to-app, add `--speak` to the
+`ExecStart` line in `pi/signs2speech@.service`.
 
 ## Troubleshooting
 
@@ -211,8 +258,17 @@ journalctl -u signs2speech@$USER -f
 - **FPS below 10.** Try these in order:
   1. Confirm you're at 640x480 (the default).
   2. Compare with `--hands-only`.
-  3. Close the desktop preview with `--headless`.
+  3. Close the browser's camera view. The page's text alone costs almost nothing; the video
+     stream costs some CPU.
   4. Only then consider the AI HAT+ (plan §3, optional).
 - **Webcam opens but the picture is wrong or stretched.** Recording must be 640x480 (4:3).
   `collect.py` refuses other aspect ratios on purpose, because the features normalize x and y
   separately.
+- **Caption page won't load.**
+  - Is `check_hw.py --web` or `run.py` still running in the SSH window?
+  - Is the laptop on the same network as the Pi?
+  - Try the IP address printed in the SSH window instead of `s2s.local`. Windows sometimes needs
+    the IP.
+  - On campus Wi-Fi, use a hotspot (step 6).
+- **The page says "reconnecting".** The Pi program stopped or the network dropped. The page
+  reconnects by itself once the program runs again.

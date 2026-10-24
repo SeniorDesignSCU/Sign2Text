@@ -5,7 +5,7 @@ nobody has to dig through old chat threads. If you start a new chat with Claude,
 this file first. It's the full context.
 
 **Last updated:** Saturday, Oct 24, 2026 · **Repo:** https://github.com/SeniorDesignSCU/Sign2Text
-**Commit at time of writing:** `c74575d` (vision-only bring-up) on `main`
+**Code state:** `main` as of this date. See `git log` for the latest commits.
 
 ---
 
@@ -41,7 +41,9 @@ this file first. It's the full context.
 | **Instructor** | Sahana |
 | **Timeline** | Started Sept 22, 2026. Fall and Winter quarters. Working product Feb 28, 2027; final demo and report by Mar 12, 2027. |
 | **Budget** | Self-funded by the students, under $1,000 total |
-| **Platform** | Raspberry Pi 5 (16 GB) + Camera Module 3 Wide. MediaPipe landmarks, a temporal model run with LiteRT (the TFLite runtime), Piper TTS, and a MAX98357A I2S amp driving a speaker. |
+| **Platform** | Raspberry Pi 5 (16 GB) + Camera Module 3 Wide. MediaPipe landmarks and a temporal model run with LiteRT (the TFLite runtime). |
+| **Output (now)** | **Live captions on a laptop.** The Pi serves a caption page that any laptop or phone on the same network opens at `http://s2s.local:8000`. The laptop is only a screen; all processing stays on the Pi. No display hardware will be bought. |
+| **Output (later)** | Speech through Piper TTS, a MAX98357A I2S amp and a speaker. It's built in but switched off (`--speak`) until the speaker and wires are bought. |
 | **Scope** | **Vision only.** The glove was dropped in October 2026. |
 
 **Measurable targets** (from `docs/PROJECT_OBJECTIVES.md`):
@@ -51,7 +53,7 @@ this file first. It's the full context.
 | Vocabulary | 25 or more word/phrase signs (plus A–Z fingerspelling as a secondary mode) |
 | Top-1 accuracy, team signers | 90% or more |
 | Top-1 accuracy, unseen signers | 80% or more |
-| Latency, end of sign to start of speech | 1 s or less |
+| Latency, end of sign to output (caption now, speech later) | 1 s or less |
 | Landmark throughput on the device | 10 FPS or more |
 | User testing | 5 or more participants, at least 1 fluent signer |
 | Form factor | Standalone, battery-powered, boots straight into the app |
@@ -80,6 +82,8 @@ two control signs, CLEAR and SPEAK, which are recognized but not spoken, and the
 | Oct 24, 2026 | **Record and run everything at 640×480 (4:3)** | The features normalize x and y against the image width and height separately, so the aspect ratio must match between training and the Pi. Details in §5. |
 | Oct 24, 2026 | **ai-edge-litert instead of tflite-runtime** on the Pi | tflite-runtime is abandoned: the last release was 2.14 in Oct 2023, with no Python 3.12 or 3.13 wheels. |
 | Oct 24, 2026 | **TensorFlow pinned to 2.20.x** for training on laptops | `tf.lite` (the converter) is deprecated from 2.20 and slated for removal. 2.20 still has it and ships for Python 3.10–3.13 on Windows, Linux and Apple-silicon Macs. |
+| Oct 24, 2026 | **Output is on-screen text for now; speech later** | Team decision: show messages on a screen until the speaker and wires are bought. |
+| Oct 24, 2026 | **The screen is a laptop browser, not display hardware** | Team decision: no display purchase. The Pi serves a live caption page (`common/s2s/webview.py`, Python standard library only) that the laptop opens over the network. Recognition stays on the Pi, so the device is still edge-processed; the laptop is only a viewer. It also works from a phone, and needs no HDMI cable, monitor or extra install on the laptop. |
 
 ---
 
@@ -100,16 +104,23 @@ two control signs, CLEAR and SPEAK, which are recognized but not spoken, and the
 | Logitech C270 HD webcam | — | 720p USB. Used for laptop data collection, and as a backup camera on the Pi. |
 | USB power bank | Amazon | For demos only. Most banks can't supply 5 V / 5 A (see §5). |
 
-### Still needed
+### Needed now
+
+**Nothing to buy.** The screen is a laptop's browser, and setup is done over SSH, so there's no
+monitor, keyboard, mouse or micro-HDMI cable. You just need a laptop that can reach the Pi over
+the network (see §5, finding 14).
+
+*Optional:* a camera mount or small tripod (~$10) to hold the camera steady at chest height about
+1 m from the signer.
+
+### Later, for speech
 
 | Item | Why | Rough cost |
 |---|---|---|
 | **Speaker, 4 Ω or 8 Ω, about 3 W** | The amp produces no sound without one. Adafruit sells suitable enclosed 3 W 4 Ω speakers. | $3–8 |
 | **Female-to-female jumper wires (5)** | To connect the amp's header pins to the Pi's GPIO pins | $3 |
 | Soldering iron access | To solder the header and screw terminal onto the amp (SCU lab) | — |
-| *Optional:* micro-HDMI to HDMI cable | The Pi 5 has micro-HDMI ports only. Not needed if you work over SSH and Raspberry Pi Connect. | $8 |
-| *Optional:* camera mount or small tripod | To hold the camera steady at chest height about 1 m from the signer | $10 |
-| *Optional, later:* Raspberry Pi AI HAT+ | Only if the measured FPS stays under 10 after tuning | $70–110 |
+| *Only if needed:* Raspberry Pi AI HAT+ | Only if the measured FPS stays under 10 after tuning | $70–110 |
 
 ---
 
@@ -200,6 +211,23 @@ Each of these would have cost real time during bring-up. All are fixed in commit
 13. **The glove code and dependencies are gone.** Removed `glove/`, `bleak` and `pyserial`. The
     systemd unit is now a per-user template (`signs2speech@.service`), because new Pi OS images
     have no default `pi` user.
+14. **Campus Wi-Fi may block the laptop from reaching the Pi.**
+    - Enterprise and campus networks often isolate devices from each other ("client
+      isolation"), so `http://s2s.local:8000` won't load even when both devices are online.
+    - **Workarounds:**
+      - **Phone hotspot:** both devices join it.
+      - **The Pi's own hotspot:** run
+        `sudo nmcli device wifi hotspot ifname wlan0 ssid S2S-Demo password "..."`, then open
+        `http://10.42.0.1:8000`. Turn it off with `sudo nmcli connection down Hotspot`.
+    - The Pi's own hotspot is the most dependable option for demos, because it doesn't depend
+      on any outside network.
+15. **No monitor means no window.** Over plain SSH there's no display, and an OpenCV window would
+    crash. `check_hw.py` and `run.py` detect this (`has_display()`) and skip the window. The
+    browser page is the screen.
+16. **The caption page is visible to anyone on the same network,** including the camera view.
+    That's fine on a hotspot. On shared networks, be aware of it, especially with test
+    participants. `run.py --host 127.0.0.1` turns it off. The page's only controls are Clear and
+    New line.
 
 ---
 
@@ -222,10 +250,28 @@ files):
 - `ai_edge_litert` and `piper-tts` 1.8 install on Python 3.13; Piper's command-line flags were
   confirmed.
 - The pushed commit was re-tested from a fresh clone.
+- **Display and captions:**
+  - Sentence logic was unit-tested:
+    - Words append.
+    - SPEAK finishes a line.
+    - A 5 s pause starts a new line.
+    - CLEAR empties the line.
+    - `NO_SIGN` is ignored.
+  - Both caption layouts were rendered and inspected.
+- **Web page:**
+  - With `check_hw.py --web --captions` running, every endpoint answered: `/`, `/state`,
+    `/events` (live updates), `/video` (JPEG stream, two viewers at once, about 10 fps cap), and
+    the Clear/New line buttons.
+  - A bug where the video stream died before its first frame was found and fixed.
+- **Runtime:** `run.py` was driven by a fake recognizer emitting signs. The page showed words
+  live, finished lines on SPEAK and after a pause, and the Clear button worked.
 
 **Not tested yet:**
-- **Anything on the physical Pi:** picamera2 capture, real FPS, I2S audio, the overlay. You
-  verify these with the checks in §7.
+- **Anything on the physical Pi:** picamera2 capture, real FPS, and the caption page on your
+  real network (campus vs. hotspot). I2S audio comes later. You verify these with the checks in
+  §7.
+- **The caption page in a real browser.** It was checked over HTTP, but no browser was available
+  in the sandbox to view it. Step 7.7 is the visual check.
 - **Real hand detection.** The sandbox test frames contained no hands. `check_hw.py` with you in
   front of the camera is the real test.
 - **`train.py` end to end on TensorFlow 2.20,** including TFLite export. TensorFlow wasn't
@@ -279,7 +325,7 @@ files):
 2. Seat the Pi in the base and route the camera ribbon out of the case.
 3. If the lid doesn't close over the cooler, leave it off while developing.
 
-**D. Amp** (solder now if you have access to an iron; wire it up later in 7.7)
+**D. Amp** (later, for speech; skip for now. Solder whenever an iron is handy, and wire it up in 7.9)
 1. Snap the header strip to length if needed. Insert its short side through the amp's pin holes
    from underneath. Plugging the long side into a breadboard holds it straight while soldering.
 2. Solder each pin on the top side.
@@ -326,19 +372,20 @@ rpicam-hello --list-cameras
 ```
 It must list a camera with `imx708_wide`.
 
-**To see live video:**
-- **Monitor attached:** `rpicam-hello -t 10000` shows 10 seconds of preview.
-- **Laptop only:**
-  1. Run `rpi-connect on`, then `rpi-connect signin`.
-  2. Open the printed URL and sign in with a Raspberry Pi ID (free).
-  3. At connect.raspberrypi.com, choose your device, then **Screen sharing**.
-  4. Run preview commands in a terminal on that shared desktop.
+**Live video** comes in 7.6, in your laptop's browser.
+
+**Optional: the full Pi desktop on your laptop** (Raspberry Pi Connect):
+1. Run `rpi-connect on`, then `rpi-connect signin`.
+2. Open the printed URL and sign in with a Raspberry Pi ID (free).
+3. At connect.raspberrypi.com, choose your device, then **Screen sharing**.
+
+This isn't required for anything in this guide.
 
 **Check the Pi's health:**
 ```bash
 vcgencmd measure_temp      # idle should be roughly 40–55 °C with the cooler
 vcgencmd get_throttled     # should print throttled=0x0
-pinout                     # prints a GPIO diagram for this board (useful in 7.7)
+pinout                     # prints a GPIO diagram for this board (useful in 7.9)
 ```
 
 **C270 webcam (optional):** plug it into a blue USB 3 port.
@@ -369,23 +416,76 @@ scripts.
 
 ### 7.6 Hardware check: camera, landmarks, FPS
 ```bash
-python scripts/check_hw.py                 # live window with landmarks drawn (monitor or Connect)
-python scripts/check_hw.py --headless      # plain SSH: prints FPS every second for 20 s
+python scripts/check_hw.py --web           # open http://s2s.local:8000 on the laptop, press "Show camera"
+python scripts/check_hw.py                 # no browser: prints FPS every second for 20 s, then a result
 python scripts/check_hw.py --hands-only    # FPS without the pose model, for comparison
 python scripts/check_hw.py --camera 0      # same test using the C270
 ```
 
 Stand about 1 m away with both hands raised, facing the camera, in decent light.
+- With `--web`, the browser shows the camera with landmarks drawn and the live FPS.
+- Press Ctrl+C in the SSH window to stop and print the result.
+- If `s2s.local` doesn't load, use the IP address printed in the SSH window.
+- On campus Wi-Fi, see 7.7 for the hotspot options.
 
 **Check, and record these numbers for the weekly report:**
 - **Average FPS:** 10 or more is a PASS and the project target. The plan estimated 10–20 FPS for
   hands plus pose on the Pi 5's processor.
 - **Detection:** hands and pose are detected in most frames.
 - **`throttled`:** stays `0x0` during the run.
-- If FPS is under 10, try `--hands-only` and `--headless` to see where the time goes. That
-  decides whether you need the AI HAT+ (plan §3).
+- If FPS is under 10, compare with `--hands-only`, and with the browser's camera view closed,
+  since encoding video costs some CPU. That decides whether you need the AI HAT+ (plan §3).
 
-### 7.7 Audio: amp wiring, enabling it, and the voice
+### 7.7 Captions on your laptop (the screen)
+```bash
+python scripts/check_hw.py --web --captions
+```
+Open `http://s2s.local:8000` on the laptop. This is the real caption page, with demo words cycling
+every 1.2 s; no model is involved yet. It shows:
+- big current-line text, with the newest word highlighted
+- the last few finished lines, dimmed above it
+- a header with connection status (a green dot means live), FPS and status
+
+**Controls:**
+- **Show camera** (`v`): the live camera view with landmarks and the "seeing X, NN%" confidence
+  bar.
+- **New line** (space): finishes the current line.
+- **Clear** (`c`): empties the captions.
+- **Fullscreen** (`f`): fills the laptop screen; use it for demos.
+
+The page reconnects by itself if the Pi program restarts. It also works on a phone, where the
+layout stacks vertically.
+
+**Check:** the page loads, shows "live", and the demo words appear and are readable from where a
+conversation partner would sit.
+
+**If the page won't load:**
+1. Confirm the program is still running in the SSH window.
+2. Try the printed IP address instead of `s2s.local`.
+3. If you're on campus Wi-Fi, it's probably blocking device-to-device traffic (§5, finding 14).
+   Use one of these:
+   - **Phone hotspot:** connect both the Pi and the laptop to it. Add the hotspot on the Pi with
+     `sudo nmtui`, under "Activate a connection".
+   - **The Pi's own hotspot:**
+     ```bash
+     sudo nmcli device wifi hotspot ifname wlan0 ssid S2S-Demo password "pick-a-password"
+     ```
+     Join `S2S-Demo` on the laptop and open `http://10.42.0.1:8000`. The Pi drops its normal
+     Wi-Fi while the hotspot is on, so SSH over the hotspot. Turn it off with
+     `sudo nmcli connection down Hotspot`.
+
+### 7.8 Done when
+- `rpicam-hello --list-cameras` finds `imx708_wide`.
+- `check_hw.py` shows 10 FPS or more with hands and pose detected.
+- The caption page (`check_hw.py --web --captions`) loads on your laptop and shows "live".
+- `vcgencmd get_throttled` is `0x0`.
+
+Put these numbers in the weekly status report as the "hardware bring-up complete" milestone.
+
+### 7.9 Later: speech (amp wiring, enabling it, and the voice)
+
+Do this once the speaker and jumper wires are bought. Until then, the captions are the output.
+Afterwards, add `--speak` to `pi/run.py`, and to the `ExecStart` line of the boot service.
 
 **Wire it up with the power off.** Look at the board with the GPIO header along the top edge and
 the USB and Ethernet ports on the right.
@@ -447,16 +547,7 @@ python scripts/check_hw.py --speaker
 - **Distorted:** use `--volume 0.6`.
 - **No sound:** try `--audio-device plughw:CARD=MAX98357A,DEV=0`. If that works, the
   `asound.conf` file is wrong. If it doesn't, recheck the wiring against `pinout`.
-- **Before the speaker arrives:** test through a monitor's speakers with
-  `--audio-device default`, before creating `asound.conf`.
-
-### 7.8 Done when
-- `rpicam-hello --list-cameras` finds `imx708_wide`.
-- `check_hw.py` shows 10 FPS or more with hands and pose detected.
-- `check_hw.py --speaker` is audible.
-- `vcgencmd get_throttled` is `0x0`.
-
-Put these numbers in the weekly status report as the "hardware bring-up complete" milestone.
+- To speak during recognition: `python pi/run.py --speak`.
 
 ---
 
@@ -540,23 +631,34 @@ scp data/models/sign_classifier.tflite data/models/labels.txt data/models/model_
 
 Then run it on the Pi:
 ```bash
-python pi/run.py                  # live window
-python pi/run.py --headless       # no screen
+python pi/run.py                  # captions at http://s2s.local:8000; words also print in the SSH window
+python pi/run.py --camera 0       # with the C270 instead of the Pi camera
+python pi/run.py --speak          # later: also speak words through the speaker
 ```
 - **Options:**
   - `--camera`
   - `--min-conf 0.8`
   - `--stable-frames 6`
-  - `--audio-device`
-  - `--volume`
-  - `--no-tts`
+  - `--sentence-timeout 5` (seconds of pause before a new line; 0 turns it off)
+  - `--port 8000`
+  - `--host 127.0.0.1` (only viewable on the Pi itself)
+  - `--no-web`
+  - `--headless` (never open a local window)
+  - `--speak`, `--audio-device` and `--volume` (speech, later)
 - **Behavior:**
-  - Each recognized word is spoken as soon as it's recognized.
-  - SPEAK says the buffered sentence.
-  - CLEAR empties the buffer.
+  - Each recognized word appears on the page immediately, highlighted.
+  - SPEAK finishes the line and moves it up.
+  - A 5 s pause also finishes the line.
+  - CLEAR empties the current line.
   - A word isn't repeated until an idle gap of about 0.6 s.
+  - The page's buttons do the same as the control signs.
+  - With `--speak`, each word is also spoken, and SPEAK says the whole line.
+- **Local window:** if a monitor session exists (e.g., when you run on a laptop during
+  development), a caption window also opens. Keys: q quit, c clear, space new line, f
+  fullscreen. `--no-preview` shows text only.
 
-Boot-to-app, scheduled for Winter Week 14:
+Boot-to-app, scheduled for Winter Week 14. After boot the caption page is just there; open
+`http://s2s.local:8000`:
 ```bash
 sudo cp pi/signs2speech@.service /etc/systemd/system/
 sudo systemctl enable --now signs2speech@$USER
@@ -573,7 +675,9 @@ common/s2s/landmarks.py  MediaPipe hand + pose -> FrameLandmarks (150 raw values
 common/s2s/features.py   shoulder normalization + velocities -> 300 features/frame; resample; mirror
 common/s2s/clips.py      .npz clip save/load + metadata (sign, signer, session, fps, source, width, height)
 common/s2s/vocab.py      the sign list, control signs, spoken text
-scripts/check_hw.py      hardware bring-up test (camera/landmarks/FPS, --speaker)
+common/s2s/display.py    Transcript (sentence logic) + CaptionView (local window) + has_display()
+common/s2s/webview.py    caption page served to a laptop/phone browser (SSE text + MJPEG camera)
+scripts/check_hw.py      hardware bring-up test (camera/landmarks/FPS, --web, --captions, --speaker)
 scripts/collect.py       record labeled clips
 scripts/download_models.sh  fetch MediaPipe .task models
 training/train.py        train + export TFLite + confusion matrix
@@ -590,11 +694,13 @@ docs/RESEARCH_AND_SETUP_LOG.md  this file
 | Activate env (Pi) | `cd ~/Sign2Text && source .venv/bin/activate` |
 | Update code on the Pi | `cd ~/Sign2Text && git pull` |
 | Camera list | `rpicam-hello --list-cameras` |
-| Camera + FPS test | `python scripts/check_hw.py [--headless] [--hands-only] [--camera 0]` |
-| Speaker test | `python scripts/check_hw.py --speaker [--volume 2] [--audio-device ...]` |
+| Camera + FPS test | `python scripts/check_hw.py [--web] [--hands-only] [--camera 0]` |
+| Caption page demo | `python scripts/check_hw.py --web --captions`, then open `http://s2s.local:8000` |
+| Speaker test (later) | `python scripts/check_hw.py --speaker [--volume 2] [--audio-device ...]` |
 | Record clips | `python scripts/collect.py --signer <name> --session <tag> [--camera pi]` |
 | Train | `python training/train.py` |
-| Run | `python pi/run.py [--headless]` |
+| Run | `python pi/run.py`, then open `http://s2s.local:8000` (add `--speak` later) |
+| Pi hotspot on / off | `sudo nmcli device wifi hotspot ifname wlan0 ssid S2S-Demo password "..."` / `sudo nmcli connection down Hotspot` |
 | Temperature / throttling | `vcgencmd measure_temp` · `vcgencmd get_throttled` |
 | GPIO diagram | `pinout` |
 | Audio cards | `aplay -l` |
@@ -611,7 +717,7 @@ plan Week 1, which is Pi bring-up. That's about 3–4 weeks behind the original 
 |---|---|---|
 | M1: hardware works, clips record end to end | Oct 4 | Not yet. This is the immediate target. |
 | M2: 15 or more signs recognized live on the Pi, 80% or better on team signers | Oct 18 | Not yet |
-| M3: end-to-end demo v0.5 (sign to speech, camera only) | Nov 1 | At risk; needs re-baselining |
+| M3: end-to-end demo v0.5 (sign to caption on the laptop; speech later) | Nov 1 | At risk; needs re-baselining |
 | Fall deliverable (demo + interim report) | Dec 4 | Still reachable with a compressed plan |
 | M4: architecture frozen | Jan 17 | — |
 | M5: standalone device, no laptop | Jan 31 | — |
@@ -634,7 +740,7 @@ also include power/battery and enclosure blocks.
 **Compressed path, a suggestion to agree with the advisor:**
 - **This week:** Pi bring-up (§7) in parallel with laptop data collection (§8).
 - **Next week:** first model on 10–15 signs, running live on the Pi.
-- **After that:** add TTS for an end-to-end demo, then scale the vocabulary and signers before
+- **After that:** end-to-end demo with captions on the laptop, then scale the vocabulary and signers before
   Thanksgiving.
 
 The glove track is gone, which frees Karan to co-own data collection and the model.
@@ -643,8 +749,10 @@ The glove track is gone, which frees Karan to co-own data collection and the mod
 
 ## 12. Open items and next steps
 
-1. **Buy the speaker and jumper wires** (§3).
-2. **Pi bring-up** through §7.8. Record the FPS, detection rate and temperature.
+1. **Pi bring-up** through §7.8. Record the FPS, detection rate and temperature, and confirm the
+   caption page loads on your laptop.
+2. **Find out whether campus Wi-Fi lets the laptop reach the Pi.** If not, set up the Pi hotspot
+   (§7.7) as the standard demo setup.
 3. **Start recording clips on both laptops** (§8).
 4. **Re-baseline the Fall schedule** for the advisor accountability plan. The plan's week table
    still has the glove column and dates from before the hardware arrived.
@@ -656,6 +764,10 @@ The glove track is gone, which frees Karan to co-own data collection and the mod
 8. **Get the vocabulary reviewed by an ASL-fluent person.** Ask the department to connect you
    with SCU ASL students or the Deaf community.
 9. **First training run on TF 2.20.** Confirm the TFLite export works (§6 "not tested").
+10. **Later: speech.** Buy the speaker and jumper wires (§3), do §7.9, and switch on `--speak`.
+11. **Check the functional diagram and report wording against the current output plan:**
+    on-screen captions, with the laptop as a display only, plus speech as the later or final
+    output.
 
 ---
 
@@ -678,6 +790,10 @@ The glove track is gone, which frees Karan to co-own data collection and the mod
 | `train.py`: no `tf.lite` | Install the pinned TF: `pip install "tensorflow>=2.20,<2.21"`. |
 | pip installs both opencv packages and `cv2` acts strangely | `pip uninstall opencv-python opencv-contrib-python`, then `pip install -r requirements.txt` again. |
 | `ssh s2s.local` fails | Use the Pi's IP address from the router or hotspot list. Confirm SSH was enabled in Imager. |
+| Caption page won't load | Is `check_hw.py --web` or `run.py` running? Is the laptop on the same network? Try the printed IP instead of `s2s.local`. On campus Wi-Fi, use a hotspot (§7.7). |
+| Page says "reconnecting" | The Pi program stopped or the network dropped. Restart the program; the page reconnects by itself. |
+| Camera view on the page is choppy | It's capped at about 12 fps on purpose to save CPU, and recognition runs at full rate regardless. Close the camera view during demos if FPS is tight. |
+| "Address already in use" on start | Another copy is running (e.g., the boot service). Run `sudo systemctl stop signs2speech@$USER`, or use `--port 8001`. |
 
 ---
 
@@ -719,4 +835,5 @@ creates two files, `en_US-lessac-medium.onnx` and `en_US-lessac-medium.onnx.json
   slides, weekly status report, functional diagram, glove dropped.
   https://claude.ai/chat/38689fce-d2eb-44c3-aacb-47288d86996e
 - **This thread** (Oct 24, 2026): hardware purchased, software stack re-verified, bring-up code
-  and guides, and this log.
+  and guides, this log, and the switch to on-screen captions in a laptop browser (speech
+  deferred).
