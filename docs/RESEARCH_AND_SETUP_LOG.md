@@ -26,6 +26,7 @@ this file first. It's the full context.
 13. [Troubleshooting reference](#13-troubleshooting-reference)
 14. [Reference data: model files, pinout, links](#14-reference-data-model-files-pinout-links)
 15. [Earlier chat threads](#15-earlier-chat-threads)
+16. [Bring-up log: what actually happened](#16-bring-up-log-what-actually-happened)
 
 ---
 
@@ -733,7 +734,7 @@ plan Week 1, which is Pi bring-up. That's about 3–4 weeks behind the original 
 
 | Plan milestone | Original date | Status |
 |---|---|---|
-| M1: hardware works, clips record end to end | Oct 4 | Not yet. This is the immediate target. |
+| M1: hardware works, clips record end to end | Oct 4 | **Hardware half done Oct 25** (§16): camera, landmarks and the laptop browser view all work on the Pi. Recording clips is next. |
 | M2: 15 or more signs recognized live on the Pi, 80% or better on team signers | Oct 18 | Not yet |
 | M3: end-to-end demo v0.5 (sign to caption on the laptop; speech later) | Nov 1 | At risk; needs re-baselining |
 | Fall deliverable (demo + interim report) | Dec 4 | Still reachable with a compressed plan |
@@ -767,10 +768,12 @@ The glove track is gone, which frees Karan to co-own data collection and the mod
 
 ## 12. Open items and next steps
 
-1. **Pi bring-up** through §7.8. Record the FPS, detection rate and temperature, and confirm the
-   caption page loads on your laptop.
+1. ~~Pi bring-up~~ **Done Oct 25** (§16). Still to do: write down the exact `check_hw.py`
+   result (Ctrl+C prints it), and run `check_hw.py --web --captions` once.
 2. **Find out whether campus Wi-Fi lets the laptop reach the Pi.** If not, set up the Pi hotspot
    (§7.7) as the standard demo setup.
+2b. **Reserve the Pi's IP (192.168.86.75)** in the Google Home app so it never changes. `s2s.local`
+   was unreliable on this network at first (§16).
 3. **Start recording clips on both laptops** (§8).
 4. **Re-baseline the Fall schedule** for the advisor accountability plan. The plan's week table
    still has the glove column and dates from before the hardware arrived.
@@ -808,6 +811,9 @@ The glove track is gone, which frees Karan to co-own data collection and the mod
 | `train.py`: no `tf.lite` | Install the pinned TF: `pip install "tensorflow>=2.20,<2.21"`. |
 | pip installs both opencv packages and `cv2` acts strangely | `pip uninstall opencv-python opencv-contrib-python`, then `pip install -r requirements.txt` again. |
 | `ssh s2s.local` fails | Use the Pi's IP address from the router or hotspot list. Confirm SSH was enabled in Imager. |
+| `ssh`/`ping s2s.local` hangs or "Unknown host" | Wait 5 minutes after the first boot. Use a personal laptop, not the Cisco-managed one, and no VPN. Find the Pi in the Google Home app device list (as `s2s` or `s2s-2`) and SSH to its IP. If needed, plug the Pi into a router **`<··>` (LAN)** port, not the globe (WAN) port, and power it on with the cable attached (§16). |
+| Imager summary has no "SSH enabled" line | The Enable SSH switch on Imager 2.0's Remote access screen is off by default. Go back, switch it on, and choose password authentication. |
+| Red `ERROR: ... types-seaborn requires pandas-stubs` during `pip install` | Harmless. It's a preinstalled Pi OS package unrelated to this project. Look for `Successfully installed ...` on the next line. |
 | Caption page won't load | Is `check_hw.py --web` or `run.py` running? Is the laptop on the same network? Try the printed IP instead of `s2s.local`. On campus Wi-Fi, use a hotspot (§7.7). |
 | Page says "reconnecting" | The Pi program stopped or the network dropped. Restart the program; the page reconnects by itself. |
 | Camera view on the page is choppy | It's capped at about 12 fps on purpose to save CPU, and recognition runs at full rate regardless. Close the camera view during demos if FPS is tight. |
@@ -856,3 +862,75 @@ creates two files, `en_US-lessac-medium.onnx` and `en_US-lessac-medium.onnx.json
 - **This thread** (Oct 24, 2026): hardware purchased, software stack re-verified, bring-up code
   and guides, this log, and the switch to on-screen captions in a laptop browser (speech
   deferred).
+
+---
+
+## 16. Bring-up log: what actually happened
+
+### Sun Oct 25, 2026, first boot (Aditya)
+
+**Flashing** (personal MacBook, BnmxTek USB-C card reader, Raspberry Pi Imager 2.0.12):
+- **Imager 2.0's steps:** Device, OS, Storage, Customisation (Hostname, Localisation, User,
+  Wi-Fi, Remote access, Raspberry Pi Connect), Writing, Done.
+- **Choices:** Raspberry Pi 5; Raspberry Pi OS (64-bit), "Debian Trixie", released 2026-10-06;
+  card shown as "Generic STORAGE DEVICE Media, 63.9 GB".
+- **Gotcha:** the **Enable SSH switch is off by default.** The first summary had no "SSH
+  enabled" line. Fixed by going back to Remote access, switching it on, and choosing password
+  authentication. The final summary showed hostname, localisation, user, Wi-Fi and SSH.
+- **Write and verify** took about 8 minutes, and Imager ejected the card itself.
+
+**Assembly notes:**
+- The Active Cooler went on before the camera cable. That still works; the connectors are just
+  harder to reach.
+- The Camera Module 3 Wide box is small and easy to miss. The camera's connector is a black bar
+  that slides out about 1–3 mm to release the cable.
+
+**Getting onto the network** took about 30 minutes:
+- `ssh adityathakrar@s2s.local` and `ping s2s.local` failed with "Unknown host" for more than
+  15 minutes after the first boot. `dns-sd -B _ssh._tcp local.` showed nothing.
+- The Pi's LED was solid green, which on a Pi 5 means running and idle. So it had booted.
+- The Cisco-managed work laptop was set aside, since corporate security software can block
+  local-network discovery. That alone didn't fix it.
+- The Ethernet cable was first plugged into the router's globe (WAN) port, which is wrong; it
+  was then moved to a **`<··>` (LAN)** port. The router is Google Nest/Google Home Wi-Fi, which
+  uses the `192.168.86.x` range.
+- The Google Home app listed the Pi as **`s2s-2`**. The "-2" suggests it had already registered
+  once, probably over Wi-Fi, so the Wi-Fi details were likely fine.
+- After a power-on with Ethernet in a LAN port, `ping s2s.local` resolved to **192.168.86.75**,
+  and SSH worked.
+- **Root cause wasn't fully pinned down.** It was likely Google Wi-Fi's `.local` name
+  resolution being unreliable, combined with the WAN-port mistake. **If `s2s.local` fails again,
+  SSH to the IP, and reserve the IP in Google Home.**
+
+**System checks after `apt full-upgrade` and a reboot:**
+- **Kernel:** `6.18.50+rpt-rpi-2712` (aarch64).
+- **Camera:** `rpicam-hello --list-cameras` lists `0 : imx708_wide [4608x2592 10-bit RGGB]`.
+  The camera and cable are good.
+- **Power and heat:** `throttled=0x0` (power is fine) and `temp=41.7'C` idle (cooler working).
+- **Project install:** `pip install -r requirements-pi.txt` gave mediapipe 1.1.1, ai-edge-litert
+  2.3.0, opencv-contrib-python 5.0.0.93 (the same OpenCV as the sandbox tests), piper-tts 1.8.0
+  and onnxruntime 1.31.0. Packages came from PyPI and piwheels.
+- `download_models.sh` fetched 7,635 KiB and 5,642 KiB, which match the sizes in §14.
+- The install check printed `ok 1.1.1`.
+
+**Hardware check** (`python scripts/check_hw.py --web`):
+- The caption page loaded at `http://s2s.local:8000` in Chrome on the Mac and showed **live**.
+- The camera view showed hand landmarks (21 points) and upper-body pose lines tracking in real
+  time.
+- **About 11 FPS** with hand and pose tracking **and** the browser camera stream on. That's just
+  over the 10 FPS target. Without the camera stream, FPS should be a bit higher; measure it.
+- **Observation:** the test was done very close to a camera angled upward, so the pose lines
+  were partly guessed. For real use and data collection, mount the camera level at chest
+  height, about 1 m away, with head to waist and both elbows in frame.
+
+**Not yet done from step 5:** the exact Ctrl+C summary (average FPS, detection percentages),
+the `--hands-only` comparison, and the `--web --captions` preview.
+
+**Practical notes:**
+- **Shut down before unplugging,** to protect the SD card: `sudo shutdown -h now`. Wait for the
+  green light to stop, then pull the power.
+- **Each SSH session** needs `cd ~/Sign2Text && source .venv/bin/activate` before running
+  project scripts.
+- **`collect.py` opens a local OpenCV window,** so it can't run on the Pi over plain SSH. For
+  now, record clips on a laptop webcam. To record with the Pi's own camera, the tool needs a
+  browser-based recording mode (not built yet).
