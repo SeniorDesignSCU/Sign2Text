@@ -10,6 +10,7 @@ The Pi serves a caption page that any laptop or phone on the same network opens 
 MAX98357A I2S amp) is built in but switched off until the speaker hardware is added (`--speak`).
 Vision only (the glove was dropped in October 2026). All recognition runs on the Pi; no cloud.
 
+- **Current status (start here):** [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
 - **Objectives:** [docs/PROJECT_OBJECTIVES.md](docs/PROJECT_OBJECTIVES.md)
 - **Plan, BOM, schedule:** [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
 - **Pi hardware bring-up:** [pi/SETUP.md](pi/SETUP.md)
