@@ -768,8 +768,8 @@ The glove track is gone, which frees Karan to co-own data collection and the mod
 
 ## 12. Open items and next steps
 
-1. ~~Pi bring-up~~ **Done Oct 25** (§16). Still to do: write down the exact `check_hw.py`
-   result (Ctrl+C prints it), and run `check_hw.py --web --captions` once.
+1. ~~Pi bring-up~~ **Done Oct 25** (§16): 15.0 FPS average, 48.8 °C, no throttling. Still to do:
+   run `check_hw.py --web --captions` once.
 2. **Find out whether campus Wi-Fi lets the laptop reach the Pi.** If not, set up the Pi hotspot
    (§7.7) as the standard demo setup.
 2b. **Reserve the Pi's IP (192.168.86.75)** in the Google Home app so it never changes. `s2s.local`
@@ -923,8 +923,21 @@ creates two files, `en_US-lessac-medium.onnx` and `en_US-lessac-medium.onnx.json
   were partly guessed. For real use and data collection, mount the camera level at chest
   height, about 1 m away, with head to waist and both elbows in frame.
 
-**Not yet done from step 5:** the exact Ctrl+C summary (average FPS, detection percentages),
-the `--hands-only` comparison, and the `--web --captions` preview.
+**Ctrl+C summary** (about 5.7 minutes, mostly not standing in frame):
+```
+frames 5131 at 640x480, average 15.0 FPS -> PASS
+hands seen in 15% of frames, pose in 27%
+temperature: 48.8'C | throttled: 0x0
+```
+- **15.0 FPS average with hand and pose tracking: PASS** against the 10 FPS target, with
+  headroom. It dipped to about 11 FPS while the browser camera stream was open.
+- **48.8 °C under load with no throttling,** so the Active Cooler is enough. The AI HAT+ isn't
+  needed.
+- **The detection percentages are low only because the signer was out of frame most of the
+  run.** They aren't a tracking-quality number yet. Re-measure while standing in frame at about
+  1 m.
+
+**Not yet done from step 5:** the `--hands-only` comparison and the `--web --captions` preview.
 
 **Practical notes:**
 - **Shut down before unplugging,** to protect the SD card: `sudo shutdown -h now`. Wait for the
