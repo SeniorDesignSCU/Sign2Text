@@ -702,6 +702,7 @@ scripts/download_models.sh  fetch MediaPipe .task models
 training/train.py        train + export TFLite + confusion matrix
 pi/run.py                device runtime
 pi/SETUP.md              short bring-up steps
+pi/QUICK_REFERENCE.md    day-to-day commands (Ethernet), troubleshooting, starting over
 pi/signs2speech@.service systemd boot-to-app template
 docs/PROJECT_PLAN.md     original plan: architecture, BOM, week-by-week schedule, risks
 docs/PROJECT_OBJECTIVES.md  objectives + measurable targets

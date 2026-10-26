@@ -13,6 +13,7 @@ Vision only (the glove was dropped in October 2026). All recognition runs on the
 - **Objectives:** [docs/PROJECT_OBJECTIVES.md](docs/PROJECT_OBJECTIVES.md)
 - **Plan, BOM, schedule:** [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
 - **Pi hardware bring-up:** [pi/SETUP.md](pi/SETUP.md)
+- **Pi quick reference (daily commands, troubleshooting, starting over):** [pi/QUICK_REFERENCE.md](pi/QUICK_REFERENCE.md)
 - **Research & setup log (all findings, decisions, full walkthrough):** [docs/RESEARCH_AND_SETUP_LOG.md](docs/RESEARCH_AND_SETUP_LOG.md)
 
 ## Layout

@@ -10,6 +10,8 @@ through the amp and a speaker comes later (step 9).
 
 Each step ends with a check. Don't move on until the check passes.
 
+Once the Pi is set up, use [QUICK_REFERENCE.md](QUICK_REFERENCE.md) for day-to-day commands.
+
 ## 0. Before you start
 
 **Needed now:** nothing beyond what you have, plus a laptop on the same network as the Pi.
