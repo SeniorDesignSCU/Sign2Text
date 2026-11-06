@@ -1,0 +1,5 @@
+# Training on the Raspberry Pi 5 itself (or any Linux/macOS/Windows machine).
+# Install into the same venv as requirements-pi.txt:  pip install -r requirements-train.txt
+# TensorFlow 2.20 ships aarch64 wheels for Python 3.10-3.13, so it installs on Pi OS (Trixie).
+tensorflow>=2.20,<2.21    # tf.lite (TFLite export) is deprecated after 2.20
+scikit-learn>=1.4         # confusion matrix

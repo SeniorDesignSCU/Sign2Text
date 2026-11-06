@@ -90,6 +90,7 @@ def main():
     queue = 0               # clips left in a repeat burst
     last_saved = ""
     fps_t, fps_n, fps = time.time(), 0, 0.0
+    summary = None
 
     while True:
         ok, frame = cam.read()
@@ -105,7 +106,9 @@ def main():
             fps, fps_n, fps_t = fps_n / (now - fps_t), 0, now
 
         sign = classes[ci]
-        counts = dataset_summary().get(sign, {})
+        if summary is None:
+            summary = dataset_summary()      # cached; refreshed after each save
+        counts = summary.get(sign, {})
         n_mine = counts.get(args.signer, 0)
 
         if state == "countdown":
@@ -132,6 +135,7 @@ def main():
                                 lighting=LIGHTING[lighting_i], handedness=args.handedness,
                                 source=cam.source, width=frame_w, height=frame_h)
                 p = save_clip(raw, np.array(buf_t), meta)
+                summary = None
                 last_saved = f"saved {p.name} ({len(buf_raw)} frames)"
             else:
                 last_saved = "clip too short, discarded"

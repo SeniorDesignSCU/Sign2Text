@@ -7,7 +7,7 @@ Pipeline: clips (.npz) -> body-normalized features + velocity -> resample to
 WINDOW frames -> 1D-CNN + GRU -> softmax over vocab.ALL_CLASSES.
 
 Held-out split is BY SIGNER when >= 2 signers exist (the honest metric), else
-a random 80/20 clip split. Outputs go to data/models/sign_classifier.{keras,tflite}
+a per-sign 80/20 clip split. Mirror augmentation is applied to the training half only. Outputs go to data/models/sign_classifier.{keras,tflite}
 plus a confusion matrix PNG and a labels.txt the Pi runtime reads.
 """
 
@@ -29,42 +29,62 @@ from s2s.features import FEAT_DIM, clip_to_features, mirror_lr, resample  # noqa
 OUT_DIR = ROOT / "data" / "models"
 
 
-def load_dataset(window: int, augment_mirror: bool):
-    X, y, signers = [], [], []
+def load_clips():
+    """Raw clips as a list of dicts (no augmentation yet, so splits never leak)."""
+    clips = []
     sizes: dict[tuple[int, int], int] = {}
-    for _, raw, _, meta in iter_clips():
+    for path, raw, t_ms, meta in iter_clips():
         if meta.sign not in vocab.CLASS_TO_ID:
             continue
         sizes[(meta.width, meta.height)] = sizes.get((meta.width, meta.height), 0) + 1
-        variants = [raw]
-        if augment_mirror:
-            variants.append(mirror_lr(raw))
-        for r in variants:
-            X.append(resample(clip_to_features(r), window))
-            y.append(vocab.CLASS_TO_ID[meta.sign])
-            signers.append(meta.signer)
-    if not X:
-        sys.exit("No clips found under data/clips. Run scripts/collect.py first.")
+        dur = (int(t_ms[-1]) - int(t_ms[0])) / 1000.0 if len(t_ms) > 1 else 0.0
+        clips.append({"raw": raw, "y": vocab.CLASS_TO_ID[meta.sign], "signer": meta.signer,
+                      "sign": meta.sign, "dur": dur, "path": path})
+    if not clips:
+        sys.exit("No clips found under data/clips. Record some first: scripts/record_web.py (Pi) "
+                 "or scripts/collect.py (laptop).")
     bad = {wh: n for wh, n in sizes.items() if wh != (0, 0) and abs(wh[0] / wh[1] - 4 / 3) > 0.02}
     if bad:
         print(f"WARNING: {sum(bad.values())} clips were not recorded at 4:3 {sorted(bad)}; "
               "they will look stretched relative to the Pi's 640x480. Re-record or drop them.")
-    return np.stack(X), np.array(y), np.array(signers)
+    return clips
 
 
-def split(X, y, signers, holdout_signer: str | None):
-    uniq = sorted(set(signers))
-    if holdout_signer is None and len(uniq) >= 2:
-        holdout_signer = uniq[-1]
+def to_arrays(clips, window: int, augment_mirror: bool):
+    X, y = [], []
+    for c in clips:
+        variants = [c["raw"]] + ([mirror_lr(c["raw"])] if augment_mirror else [])
+        for r in variants:
+            X.append(resample(clip_to_features(r), window))
+            y.append(c["y"])
+    return np.stack(X).astype(np.float32), np.array(y)
+
+
+def split(clips, holdout_signer: str | None):
+    """Hold out one signer when there are 2+ (honest cross-signer number); otherwise a
+    per-sign 80/20 split of clips. Mirrored copies are made after this, so no leakage."""
+    signers = sorted({c["signer"] for c in clips})
+    if holdout_signer is None and len(signers) >= 2:
+        holdout_signer = signers[-1]
     if holdout_signer:
-        te = signers == holdout_signer
-        print(f"holding out signer '{holdout_signer}' ({te.sum()} clips) for validation")
-        return X[~te], y[~te], X[te], y[te]
+        te = [c for c in clips if c["signer"] == holdout_signer]
+        tr = [c for c in clips if c["signer"] != holdout_signer]
+        if not te or not tr:
+            sys.exit(f"--holdout-signer '{holdout_signer}' leaves an empty split; signers: {signers}")
+        print(f"validation = signer '{holdout_signer}' ({len(te)} clips), training = {len(tr)} clips")
+        return tr, te
     rng = np.random.default_rng(0)
-    idx = rng.permutation(len(X))
-    n_te = max(1, len(X) // 5)
-    te, tr = idx[:n_te], idx[n_te:]
-    return X[tr], y[tr], X[te], y[te]
+    tr, te = [], []
+    by_class: dict[int, list] = {}
+    for c in clips:
+        by_class.setdefault(c["y"], []).append(c)
+    for cls_clips in by_class.values():
+        idx = rng.permutation(len(cls_clips))
+        n_te = max(1, round(len(cls_clips) * 0.2)) if len(cls_clips) >= 3 else 0
+        te += [cls_clips[i] for i in idx[:n_te]]
+        tr += [cls_clips[i] for i in idx[n_te:]]
+    print(f"one signer: random per-sign split, {len(tr)} training / {len(te)} validation clips")
+    return tr, te
 
 
 def build_model(window: int, n_classes: int):
@@ -131,9 +151,22 @@ def main():
 
     import tensorflow as tf
 
-    X, y, signers = load_dataset(args.window, not args.no_mirror)
-    print(f"dataset: {X.shape}, classes present: {len(set(y))}/{len(vocab.ALL_CLASSES)}")
-    Xtr, ytr, Xte, yte = split(X, y, signers, args.holdout_signer)
+    clips = load_clips()
+    counts: dict[str, int] = {}
+    for c in clips:
+        counts[c["sign"]] = counts.get(c["sign"], 0) + 1
+    print("clips per sign: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
+    if vocab.NO_SIGN not in counts:
+        print("WARNING: no NO_SIGN clips. The device will guess a word even when you're idle. Record some.")
+    thin = [k for k, v in counts.items() if v < 15]
+    if thin:
+        print(f"WARNING: fewer than 15 clips for {thin}; expect weak recognition for those.")
+    clip_seconds = float(np.median([c["dur"] for c in clips if c["dur"] > 0] or [2.5]))
+    tr, te = split(clips, args.holdout_signer)
+    Xtr, ytr = to_arrays(tr, args.window, not args.no_mirror)
+    Xte, yte = to_arrays(te, args.window, False)
+    print(f"training tensors {Xtr.shape}, validation {Xte.shape}, "
+          f"classes present {len(counts)}/{len(vocab.ALL_CLASSES)}, clip length {clip_seconds:.2f} s")
 
     model = build_model(args.window, len(vocab.ALL_CLASSES))
     model.summary()
@@ -142,6 +175,8 @@ def main():
         tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5),
     ]
     rng = np.random.default_rng(0)
+    if len(Xte) == 0:
+        sys.exit("Not enough clips for a validation split (need 3+ per sign). Record more.")
     model.fit(jitter(Xtr, rng), ytr, validation_data=(Xte, yte),
               epochs=args.epochs, batch_size=args.batch, callbacks=cb, verbose=2)
 
@@ -151,7 +186,9 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     model.save(OUT_DIR / "sign_classifier.keras")
     (OUT_DIR / "labels.txt").write_text("\n".join(vocab.ALL_CLASSES) + "\n")
-    (OUT_DIR / "model_config.json").write_text(json.dumps({"window": args.window, "feat_dim": FEAT_DIM}))
+    (OUT_DIR / "model_config.json").write_text(json.dumps({
+        "window": args.window, "feat_dim": FEAT_DIM, "clip_seconds": round(clip_seconds, 3),
+        "trained_signs": sorted(counts), "val_accuracy": round(float(acc), 4)}))
 
     tfl = export_tflite(model)
     (OUT_DIR / "sign_classifier.tflite").write_bytes(tfl)

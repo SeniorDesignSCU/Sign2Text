@@ -87,7 +87,8 @@ class Speaker:
 class Recognizer:
     """Sliding-window TFLite inference with confidence + stability gating."""
 
-    def __init__(self, model_dir: Path, window: int, min_conf: float, stable_frames: int):
+    def __init__(self, model_dir: Path, window: int, min_conf: float, stable_frames: int,
+                 clip_seconds: float = 2.5):
         try:
             from ai_edge_litert.interpreter import Interpreter  # current name of TFLite runtime
         except ImportError:
@@ -104,17 +105,23 @@ class Recognizer:
         self.window = window
         self.min_conf = min_conf
         self.stable_frames = stable_frames
-        self.raw_buf: collections.deque[np.ndarray] = collections.deque(maxlen=int(window * 1.5))
+        # The model was trained on clips of clip_seconds each, so look at the same span of
+        # time here; a longer buffer would squash each sign in time after resampling.
+        self.clip_seconds = clip_seconds
+        self.raw_buf: collections.deque[tuple[float, np.ndarray]] = collections.deque()
         self.history: collections.deque[int] = collections.deque(maxlen=stable_frames)
         self.last_emitted: str | None = None
         self.idle_since = time.time()
 
     def push(self, raw_frame: np.ndarray) -> tuple[str, float, str | None]:
         """Returns (top_label, confidence, emitted_label_or_None)."""
-        self.raw_buf.append(raw_frame)
-        if len(self.raw_buf) < self.window // 2:
+        now = time.time()
+        self.raw_buf.append((now, raw_frame))
+        while self.raw_buf and now - self.raw_buf[0][0] > self.clip_seconds:
+            self.raw_buf.popleft()
+        if len(self.raw_buf) < 5 or now - self.raw_buf[0][0] < 0.6 * self.clip_seconds:
             return vocab.NO_SIGN, 0.0, None
-        feats = resample(clip_to_features(np.stack(self.raw_buf)), self.window)
+        feats = resample(clip_to_features(np.stack([r for _, r in self.raw_buf])), self.window)
         self.interp.set_tensor(self.inp["index"], feats[None].astype(np.float32))
         self.interp.invoke()
         probs = self.interp.get_tensor(self.out["index"])[0]
@@ -161,7 +168,11 @@ def main():
                  "training/train.py, copy data/models/ to the Pi. To test hardware now, run "
                  "scripts/check_hw.py instead.")
     cfg = json.loads(cfg_path.read_text())
-    rec = Recognizer(MODEL_DIR, cfg["window"], args.min_conf, args.stable_frames)
+    rec = Recognizer(MODEL_DIR, cfg["window"], args.min_conf, args.stable_frames,
+                     cfg.get("clip_seconds", 2.5))
+    if cfg.get("trained_signs"):
+        print(f"model: {len(cfg['trained_signs'])} classes ({', '.join(cfg['trained_signs'])}), "
+              f"validation accuracy {cfg.get('val_accuracy', 0):.0%}")
     spk = Speaker(Path(args.voice), device=args.audio_device, volume=args.volume) if args.speak else None
     ext = LandmarkExtractor()
     cam = open_camera(args.camera, args.width, args.height)
