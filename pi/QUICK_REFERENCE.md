@@ -109,36 +109,57 @@ vcgencmd get_throttled
 vcgencmd measure_temp
 ```
 
-## 7. Run the recognizer (once a trained model is on the Pi)
+## 7. Record, train, run (everything on the Pi)
 
+**One-time:** install the training tools, about 5 minutes. Do this before recording, not during.
+```
+pip install -r requirements-train.txt
+```
+
+**Record clips.** Use your own name for `--signer`, lowercase.
+```
+python scripts/record_web.py --signer aditya --signs HELLO,THANK_YOU,PLEASE,YES,NO,HELP,WATER,EAT,MORE,STOP
+```
+Open `http://s2s.local:8000`, click a sign, then press **Record 5** (r). Yellow means get ready;
+**red means sign it once**. Each clip stops by itself after 2.5 s.
+- Aim for about 40 clips per sign, plus 40–60 **NO_SIGN** clips (resting, scratching, fidgeting).
+- **Delete last** (u) removes a bad clip.
+- Ctrl+C stops the page. Clips are already saved in `data/clips/`, and the counts pick up
+  where you left off next time.
+
+**Train,** about 5–10 minutes on the Pi:
+```
+python training/train.py
+```
+It prints clips per sign, the validation accuracy, and writes the model to `data/models/`.
+- **One signer:** it holds back 20 % of each sign's clips to test on.
+- **Two or more signers:** it tests on a signer it didn't train on, which is the honest number.
+
+**Run the recognizer:**
 ```
 python pi/run.py
 ```
 Captions appear at `http://s2s.local:8000`, and recognized words also print in SSH.
 
-**With the C270:**
-```
-python pi/run.py --camera 0
-```
-
-**With speech,** once the speaker is wired:
-```
-python pi/run.py --speak
-```
+**Options:**
+- With the C270 webcam: `python pi/run.py --camera 0`
+- With speech, once the speaker is wired: `python pi/run.py --speak`
+- If it fires too eagerly or too rarely: `--min-conf 0.85`, or `--stable-frames 8` (stricter).
 
 ## 8. Copy files between the Mac and the Pi
 
 Run these **on the Mac**, in a new Terminal window, not inside SSH.
 
-**Send a trained model to the Pi** (from the Mac's Sign2Text folder):
+**Back up recorded clips** (the dataset is the most valuable thing in the project), from the Mac:
+```
+scp -r adityathakrar@s2s.local:~/Sign2Text/data/clips ~/Desktop/sign2text-clips-backup
+```
+
+**Send a trained model to the Pi** (only if you trained on a laptop instead), from the Mac's Sign2Text folder:
 ```
 scp data/models/sign_classifier.tflite data/models/labels.txt data/models/model_config.json adityathakrar@s2s.local:~/Sign2Text/data/models/
 ```
 
-**Copy recorded clips from the Pi to the Mac:**
-```
-scp -r adityathakrar@s2s.local:~/Sign2Text/data/clips ./data/
-```
 
 ## 9. Shut down or restart
 
