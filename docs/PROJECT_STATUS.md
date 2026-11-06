@@ -63,7 +63,15 @@ processing runs on the Pi.
 **Nov 5:**
 - **Browser recording tool on the Pi** (`scripts/record_web.py`). The open decision below was
   settled as option B.
-- **Recording started:** HELLO × 40, then the rest of the 10 starter signs and NO_SIGN.
+- **Recorded:** 440 clips on the Pi (Aditya). That's 40 each of HELLO, THANK_YOU, PLEASE,
+  YES, NO, HELP, WATER, EAT, MORE, STOP and NO_SIGN, at 12.4 fps and 2.54 s per clip. They're
+  backed up to the Mac at `~/Desktop/sign2text-clips-nov5`.
+- **First real model**, trained on the Pi in about 2 minutes (21 epochs):
+  - **95.5 %** validation accuracy (same signer, held-out clips).
+  - Live-stream check: **59/60 right**, 1 wrong (THANK_YOU heard as STOP), 0 missed, but
+    **12 extra words**.
+  - Next: send the zipped clips to Claude to tune the extra words down, then try
+    `pi/run.py` live.
 - **Training runs on the Pi** (TensorFlow 2.20). It was verified end to end on synthetic
   clips: train, export a 333 KB `.tflite`, then live recognition.
 - **Extra words between signs: found and fixed.** Training now adds half-seen-sign windows,
@@ -71,7 +79,7 @@ processing runs on the Pi.
   RESEARCH_AND_SETUP_LOG §16, Nov 5.
 
 **Not done or untested:**
-- **First real model.** Finish recording, then run `train.py` on the Pi and `pi/run.py`.
+- **Extra words in live use** (12 per 60 signs in the stream check). Tune with the real clips.
 - **Karan's clips** (`--signer karan`), so validation tests on an unseen signer.
 - The caption demo (`check_hw.py --web --captions`) hasn't been viewed on real hardware yet.
 - Whether campus Wi-Fi lets the Mac reach the Pi is unknown. If not, use the Pi's hotspot.

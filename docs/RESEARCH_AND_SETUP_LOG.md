@@ -998,3 +998,15 @@ other nine starter signs and NO_SIGN.
   | about 0.7 s | 54/60 (6 missed) |
 
   **Rest the hands for about a second between words.** Re-measure on real clips.
+
+**First real training run (Nov 5, evening):**
+- **Data:** 440 clips (11 classes × 40), recorded at a median **12.4 fps** with the browser
+  view open, **2.54 s** per clip. Training used 2,624 tensors, including 1,920 spliced
+  windows.
+- **Training on the Pi 5:** about 46 ms per step, about 4 s per epoch. Early stopping ended it
+  at epoch 21, so about 2 minutes in all.
+- **Validation accuracy: 0.955** (88 held-out clips, same signer).
+- **Live-stream check:** right 59, wrong 1 (THANK_YOU heard as STOP), missed 0, **extra 12**.
+  Synthetic data had 0 extra, so something in the real clips triggers them; the likeliest
+  cause is fidgeting in NO_SIGN. Next step: tune on the real clips.
+
