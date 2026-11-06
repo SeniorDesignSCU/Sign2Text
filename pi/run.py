@@ -38,9 +38,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "common"))
 from s2s import vocab  # noqa: E402
 from s2s.camera import add_camera_args, open_camera  # noqa: E402
+from s2s.decoder import COOLDOWN_FRACTION, WordDecoder  # noqa: E402
 from s2s.display import CaptionView, Transcript, has_display  # noqa: E402
 from s2s.webview import WebView  # noqa: E402
-from s2s.features import FEAT_DIM, clip_to_features, resample  # noqa: E402
+from s2s.features import clip_to_features, resample  # noqa: E402
 from s2s.landmarks import LandmarkExtractor, draw  # noqa: E402
 
 MODEL_DIR = ROOT / "data" / "models"
@@ -88,7 +89,7 @@ class Recognizer:
     """Sliding-window TFLite inference with confidence + stability gating."""
 
     def __init__(self, model_dir: Path, window: int, min_conf: float, stable_frames: int,
-                 clip_seconds: float = 2.5):
+                 clip_seconds: float = 2.5, cooldown: float | None = None):
         try:
             from ai_edge_litert.interpreter import Interpreter  # current name of TFLite runtime
         except ImportError:
@@ -103,15 +104,14 @@ class Recognizer:
         self.out = self.interp.get_output_details()[0]
         self.labels = (model_dir / "labels.txt").read_text().split()
         self.window = window
-        self.min_conf = min_conf
-        self.stable_frames = stable_frames
         # The model was trained on clips of clip_seconds each, so look at the same span of
         # time here; a longer buffer would squash each sign in time after resampling.
         self.clip_seconds = clip_seconds
         self.raw_buf: collections.deque[tuple[float, np.ndarray]] = collections.deque()
-        self.history: collections.deque[int] = collections.deque(maxlen=stable_frames)
-        self.last_emitted: str | None = None
-        self.idle_since = time.time()
+        # Same word rules as training/train.py's live-stream check.
+        self.decoder = WordDecoder(
+            self.labels, min_conf=min_conf, stable_frames=stable_frames,
+            cooldown=COOLDOWN_FRACTION * clip_seconds if cooldown is None else cooldown)
 
     def push(self, raw_frame: np.ndarray) -> tuple[str, float, str | None]:
         """Returns (top_label, confidence, emitted_label_or_None)."""
@@ -125,21 +125,8 @@ class Recognizer:
         self.interp.set_tensor(self.inp["index"], feats[None].astype(np.float32))
         self.interp.invoke()
         probs = self.interp.get_tensor(self.out["index"])[0]
-        k = int(probs.argmax()); conf = float(probs[k]); label = self.labels[k]
-
-        self.history.append(k if conf >= self.min_conf else -1)
-        emitted = None
-        if label == vocab.NO_SIGN:
-            # Idle gap resets "already said this" so a repeated sign can be re-emitted.
-            if time.time() - self.idle_since > 0.6:
-                self.last_emitted = None
-        else:
-            self.idle_since = time.time()
-            stable = len(self.history) == self.stable_frames and all(h == k for h in self.history)
-            if stable and label != self.last_emitted:
-                emitted = label
-                self.last_emitted = label
-        return label, conf, emitted
+        k = int(probs.argmax()); conf = float(probs[k])
+        return self.labels[k], conf, self.decoder.update(k, conf, now)
 
 
 def main():
@@ -147,6 +134,8 @@ def main():
     add_camera_args(ap)
     ap.add_argument("--min-conf", type=float, default=0.80)
     ap.add_argument("--stable-frames", type=int, default=6)
+    ap.add_argument("--cooldown", type=float, default=None,
+                    help="seconds before a different word can fire (default: half a clip)")
     ap.add_argument("--sentence-timeout", type=float, default=5.0,
                     help="seconds without a new word before the line is finished (0 = never)")
     ap.add_argument("--fullscreen", action="store_true", help="fill the attached display")
@@ -169,10 +158,14 @@ def main():
                  "scripts/check_hw.py instead.")
     cfg = json.loads(cfg_path.read_text())
     rec = Recognizer(MODEL_DIR, cfg["window"], args.min_conf, args.stable_frames,
-                     cfg.get("clip_seconds", 2.5))
+                     cfg.get("clip_seconds", 2.5), args.cooldown)
     if cfg.get("trained_signs"):
         print(f"model: {len(cfg['trained_signs'])} classes ({', '.join(cfg['trained_signs'])}), "
               f"validation accuracy {cfg.get('val_accuracy', 0):.0%}")
+    if cfg.get("stream_check"):
+        s = cfg["stream_check"]
+        print(f"live-stream check: {s['right']} right, {s['wrong']} wrong, {s['missed']} missed, "
+              f"{s['extra']} extra words")
     spk = Speaker(Path(args.voice), device=args.audio_device, volume=args.volume) if args.speak else None
     ext = LandmarkExtractor()
     cam = open_camera(args.camera, args.width, args.height)

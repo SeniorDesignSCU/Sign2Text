@@ -131,20 +131,28 @@ Open `http://s2s.local:8000`, click a sign, then press **Record 5** (r). Yellow 
 ```
 python training/train.py
 ```
-It prints clips per sign, the validation accuracy, and writes the model to `data/models/`.
-- **One signer:** it holds back 20 % of each sign's clips to test on.
-- **Two or more signers:** it tests on a signer it didn't train on, which is the honest number.
+It prints clips per sign and two scores, then writes the model to `data/models/`.
+- **Validation accuracy** is for single clips.
+  - **One signer:** it holds back 20 % of each sign's clips to test on.
+  - **Two or more signers:** it tests on a signer it didn't train on, which is the honest
+    number.
+- **Live-stream check** plays those held-back clips back to back, like live use, and counts
+  `right / wrong word / missed / extra words`. Extra words mean the captions would show
+  things nobody signed.
 
 **Run the recognizer:**
 ```
 python pi/run.py
 ```
 Captions appear at `http://s2s.local:8000`, and recognized words also print in SSH.
+**Sign one word, then rest your hands for about a second** before the next one.
 
 **Options:**
 - With the C270 webcam: `python pi/run.py --camera 0`
 - With speech, once the speaker is wired: `python pi/run.py --speak`
-- If it fires too eagerly or too rarely: `--min-conf 0.85`, or `--stable-frames 8` (stricter).
+- **If it fires too eagerly:** `--min-conf 0.85`, or `--stable-frames 8` (stricter).
+- **If it misses fast words:** `--stable-frames 4`.
+- **If it doubles up words:** `--cooldown 2`.
 
 ## 8. Copy files between the Mac and the Pi
 

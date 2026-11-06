@@ -7,13 +7,24 @@ Pipeline: clips (.npz) -> body-normalized features + velocity -> resample to
 WINDOW frames -> 1D-CNN + GRU -> softmax over vocab.ALL_CLASSES.
 
 Held-out split is BY SIGNER when >= 2 signers exist (the honest metric), else
-a per-sign 80/20 clip split. Mirror augmentation is applied to the training half only. Outputs go to data/models/sign_classifier.{keras,tflite}
-plus a confusion matrix PNG and a labels.txt the Pi runtime reads.
+a per-sign 80/20 clip split. Augmentation (mirroring, and spliced "half-seen sign"
+windows from s2s.decoder.splice_windows) is applied to the training half only.
+
+Two scores are printed:
+- validation accuracy: held-out clips, one clean sign each;
+- live-stream check: held-out clips played back to back with pauses, through the
+  exported .tflite and the same WordDecoder as pi/run.py. Extra words here mean the
+  device would caption things nobody signed.
+
+Outputs go to data/models/sign_classifier.{keras,tflite} plus a confusion matrix PNG,
+labels.txt and model_config.json, which the Pi runtime reads.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import sys
 from pathlib import Path
@@ -24,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "common"))
 from s2s import vocab  # noqa: E402
 from s2s.clips import iter_clips  # noqa: E402
+from s2s.decoder import COOLDOWN_FRACTION, WordDecoder, align_words, splice_windows  # noqa: E402
 from s2s.features import FEAT_DIM, clip_to_features, mirror_lr, resample  # noqa: E402
 
 OUT_DIR = ROOT / "data" / "models"
@@ -50,14 +62,100 @@ def load_clips():
     return clips
 
 
-def to_arrays(clips, window: int, augment_mirror: bool):
-    X, y = [], []
+NO_SIGN_ID = vocab.CLASS_TO_ID[vocab.NO_SIGN]
+
+
+def idle_pool(clips) -> dict[str, list[np.ndarray]]:
+    """NO_SIGN clips by signer, used as filler between signs."""
+    pool: dict[str, list[np.ndarray]] = {}
     for c in clips:
-        variants = [c["raw"]] + ([mirror_lr(c["raw"])] if augment_mirror else [])
-        for r in variants:
-            X.append(resample(clip_to_features(r), window))
-            y.append(c["y"])
+        if c["y"] == NO_SIGN_ID:
+            pool.setdefault(c["signer"], []).append(c["raw"])
+    return pool
+
+
+def idle_frames(pool, signer: str, n: int, rng) -> np.ndarray:
+    """n frames of idle footage, from the same signer when possible."""
+    src = pool.get(signer) or [r for v in pool.values() for r in v]
+    parts, total = [], 0
+    while total < n:
+        r = src[rng.integers(len(src))]
+        parts.append(r)
+        total += len(r)
+    return np.concatenate(parts)[:n]
+
+
+def to_arrays(clips, window: int, augment_mirror: bool, idle=None, rng=None):
+    """Clips -> (X, y). With an idle pool, each sign clip also yields spliced windows
+    (sign partly in view): off-centre ones keep the label, slivers become NO_SIGN."""
+    raws, ys = [], []
+    for c in clips:
+        raws.append(c["raw"]); ys.append(c["y"])
+        if idle and c["y"] != NO_SIGN_ID:
+            filler = idle_frames(idle, c["signer"], 2 * len(c["raw"]), rng)
+            for w, is_sign in splice_windows(c["raw"], filler, rng):
+                raws.append(w); ys.append(c["y"] if is_sign else NO_SIGN_ID)
+    X, y = [], []
+    for r, label in zip(raws, ys):
+        for v in [r] + ([mirror_lr(r)] if augment_mirror else []):
+            X.append(resample(clip_to_features(v), window))
+            y.append(label)
     return np.stack(X).astype(np.float32), np.array(y)
+
+
+def class_weights(y) -> dict[int, float]:
+    """Square-root balancing: spliced windows make NO_SIGN the biggest class; this keeps it
+    from drowning out the signs while still leaning towards 'no word' when unsure."""
+    ids, n = np.unique(y, return_counts=True)
+    w = np.sqrt(n.sum() / (len(ids) * n))
+    return {int(i): float(v / w.mean()) for i, v in zip(ids, w)}
+
+
+def stream_check(tfl: bytes, te, idle, window: int, clip_seconds: float, fps: float, rng,
+                 max_signs: int = 60) -> dict | None:
+    """Replay held-out clips as one continuous stream (idle, sign, idle, sign, ...) through
+    the exported model and the same WordDecoder the Pi uses. This is the live-style score:
+    it counts extra words fired between signs, which plain clip accuracy can't see."""
+    try:
+        from ai_edge_litert.interpreter import Interpreter
+    except ImportError:
+        import tensorflow as tf
+        Interpreter = tf.lite.Interpreter
+    signs = [c for c in te if c["y"] != NO_SIGN_ID]
+    if not signs or not idle:
+        return None
+    rng.shuffle(signs)
+    signs = signs[:max_signs]
+    parts, truth = [], []
+    for c in signs:
+        gap = int(len(c["raw"]) * rng.uniform(0.6, 1.2))
+        parts += [idle_frames(idle, c["signer"], gap, rng), c["raw"]]
+        truth.append(c["sign"])
+    parts.append(idle_frames(idle, signs[-1]["signer"], int(clip_seconds * fps), rng))
+    stream = np.concatenate(parts)
+
+    interp = Interpreter(model_content=tfl)
+    interp.allocate_tensors()
+    inp, out = interp.get_input_details()[0], interp.get_output_details()[0]
+    dec = WordDecoder(vocab.ALL_CLASSES, cooldown=COOLDOWN_FRACTION * clip_seconds)
+    W = max(5, round(clip_seconds * fps))
+    said = []
+    for i in range(W, len(stream) + 1):
+        feats = resample(clip_to_features(stream[i - W:i]), window)
+        interp.set_tensor(inp["index"], feats[None].astype(np.float32))
+        interp.invoke()
+        probs = interp.get_tensor(out["index"])[0]
+        k = int(probs.argmax())
+        word = dec.update(k, float(probs[k]), i / fps)
+        if word:
+            said.append(word)
+    res = align_words(truth, said)
+    print(f"\nlive-stream check ({len(truth)} held-out signs played back to back, with pauses):")
+    print(f"  right {res['right']}, wrong word {res['wrong']}, missed {res['missed']}, "
+          f"extra words {res['extra']}")
+    print(f"  first signs: {' '.join(truth[:8])}")
+    print(f"  heard:       {' '.join(said[:8])}")
+    return res
 
 
 def split(clips, holdout_signer: str | None):
@@ -127,12 +225,15 @@ def export_tflite(model) -> bytes:
         conv.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]  # plain LiteRT ops only
         return conv
 
+    # The converter prints a long "Saved artifact ... Captures" listing; hide it.
+    quiet = contextlib.redirect_stdout(io.StringIO())
     try:
-        return configure(tf.lite.TFLiteConverter.from_keras_model(model)).convert()
+        with quiet:
+            return configure(tf.lite.TFLiteConverter.from_keras_model(model)).convert()
     except Exception as e:  # noqa: BLE001
         print(f"direct Keras conversion failed ({type(e).__name__}); trying SavedModel export")
-        with tempfile.TemporaryDirectory() as d:
-            model.export(d)
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
+            model.export(d, verbose=False)
             return configure(tf.lite.TFLiteConverter.from_saved_model(d)).convert()
 
 
@@ -147,6 +248,8 @@ def main():
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--holdout-signer", default=None)
     ap.add_argument("--no-mirror", action="store_true")
+    ap.add_argument("--no-splice", action="store_true",
+                    help="skip the half-seen-sign training windows (not recommended)")
     args = ap.parse_args()
 
     import tensorflow as tf
@@ -161,12 +264,20 @@ def main():
     thin = [k for k, v in counts.items() if v < 15]
     if thin:
         print(f"WARNING: fewer than 15 clips for {thin}; expect weak recognition for those.")
-    clip_seconds = float(np.median([c["dur"] for c in clips if c["dur"] > 0] or [2.5]))
+    timed = [c for c in clips if c["dur"] > 0]
+    clip_seconds = float(np.median([c["dur"] for c in timed] or [2.5]))
+    fps = float(np.median([(len(c["raw"]) - 1) / c["dur"] for c in timed] or [15.0]))
     tr, te = split(clips, args.holdout_signer)
-    Xtr, ytr = to_arrays(tr, args.window, not args.no_mirror)
+    rng = np.random.default_rng(0)
+    idle_tr = None if args.no_splice else idle_pool(tr)
+    Xtr, ytr = to_arrays(tr, args.window, not args.no_mirror, idle_tr, rng)
     Xte, yte = to_arrays(te, args.window, False)
     print(f"training tensors {Xtr.shape}, validation {Xte.shape}, "
-          f"classes present {len(counts)}/{len(vocab.ALL_CLASSES)}, clip length {clip_seconds:.2f} s")
+          f"classes present {len(counts)}/{len(vocab.ALL_CLASSES)}, clip length {clip_seconds:.2f} s "
+          f"at {fps:.1f} fps")
+    if idle_tr:
+        print(f"  includes {int(len(Xtr) - len(tr) * (1 if args.no_mirror else 2))} spliced "
+              "half-seen-sign windows")
 
     model = build_model(args.window, len(vocab.ALL_CLASSES))
     model.summary()
@@ -174,10 +285,9 @@ def main():
         tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=12, restore_best_weights=True),
         tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5),
     ]
-    rng = np.random.default_rng(0)
     if len(Xte) == 0:
         sys.exit("Not enough clips for a validation split (need 3+ per sign). Record more.")
-    model.fit(jitter(Xtr, rng), ytr, validation_data=(Xte, yte),
+    model.fit(jitter(Xtr, rng), ytr, validation_data=(Xte, yte), class_weight=class_weights(ytr),
               epochs=args.epochs, batch_size=args.batch, callbacks=cb, verbose=2)
 
     loss, acc = model.evaluate(Xte, yte, verbose=0)
@@ -186,13 +296,17 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     model.save(OUT_DIR / "sign_classifier.keras")
     (OUT_DIR / "labels.txt").write_text("\n".join(vocab.ALL_CLASSES) + "\n")
-    (OUT_DIR / "model_config.json").write_text(json.dumps({
-        "window": args.window, "feat_dim": FEAT_DIM, "clip_seconds": round(clip_seconds, 3),
-        "trained_signs": sorted(counts), "val_accuracy": round(float(acc), 4)}))
 
     tfl = export_tflite(model)
     (OUT_DIR / "sign_classifier.tflite").write_bytes(tfl)
     print(f"wrote {OUT_DIR/'sign_classifier.tflite'} ({len(tfl)/1024:.0f} KB)")
+
+    live = stream_check(tfl, te, idle_pool(te) or idle_pool(tr), args.window, clip_seconds, fps,
+                        np.random.default_rng(1))
+    (OUT_DIR / "model_config.json").write_text(json.dumps({
+        "window": args.window, "feat_dim": FEAT_DIM, "clip_seconds": round(clip_seconds, 3),
+        "trained_signs": sorted(counts), "val_accuracy": round(float(acc), 4),
+        "stream_check": live}))
 
     # Confusion matrix
     try:

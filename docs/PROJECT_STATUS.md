@@ -1,6 +1,6 @@
 # Signs to Speech: Project Status
 
-**As of Sunday, Oct 25, 2026, end of day.** This is a one-page handoff. To continue in a new
+**As of Thursday, Nov 5, 2026.** This is a one-page handoff. To continue in a new
 chat, share this file, or the repo link, first.
 
 **Repo:** https://github.com/SeniorDesignSCU/Sign2Text (`main`, latest commit `5996bed`)
@@ -60,9 +60,19 @@ processing runs on the Pi.
   - 48.8 °C under load, `throttled=0x0`.
   - Live camera and landmarks view working in Chrome on the Mac.
 
+**Nov 5:**
+- **Browser recording tool on the Pi** (`scripts/record_web.py`). The open decision below was
+  settled as option B.
+- **Recording started:** HELLO × 40, then the rest of the 10 starter signs and NO_SIGN.
+- **Training runs on the Pi** (TensorFlow 2.20). It was verified end to end on synthetic
+  clips: train, export a 333 KB `.tflite`, then live recognition.
+- **Extra words between signs: found and fixed.** Training now adds half-seen-sign windows,
+  and `train.py` prints a **live-stream check** (right, wrong, missed, extra). See
+  RESEARCH_AND_SETUP_LOG §16, Nov 5.
+
 **Not done or untested:**
-- **No training clips recorded yet.** This is the critical path.
-- **No model trained yet.** `train.py` hasn't been run on TF 2.20 yet.
+- **First real model.** Finish recording, then run `train.py` on the Pi and `pi/run.py`.
+- **Karan's clips** (`--signer karan`), so validation tests on an unseen signer.
 - The caption demo (`check_hw.py --web --captions`) hasn't been viewed on real hardware yet.
 - Whether campus Wi-Fi lets the Mac reach the Pi is unknown. If not, use the Pi's hotspot.
 - The Pi's IP isn't reserved in the Google Home app yet.

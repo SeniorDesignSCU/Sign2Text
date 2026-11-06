@@ -948,3 +948,53 @@ temperature: 48.8'C | throttled: 0x0
 - **`collect.py` opens a local OpenCV window,** so it can't run on the Pi over plain SSH. For
   now, record clips on a laptop webcam. To record with the Pi's own camera, the tool needs a
   browser-based recording mode (not built yet).
+
+### Thu Nov 5, 2026: recording on the Pi, training pipeline verified (Aditya + Claude)
+
+**Recording:** the browser recording tool `scripts/record_web.py` (built Oct 28) replaces
+`collect.py` on the Pi. It shows the Pi camera at `http://s2s.local:8000`, with a sign picker,
+Record 1 / Record 5, and Delete last. Aditya recorded **HELLO × 40** first, then went on to the
+other nine starter signs and NO_SIGN.
+
+**Training on the Pi, checked in the sandbox first:**
+- **TensorFlow 2.20.0** installs on Python 3.13 next to mediapipe 1.1.1, protobuf 7.36.2 and
+  numpy 2.x, so training can run on the Pi itself (`requirements-train.txt`).
+- `tf.lite.TFLiteConverter.from_keras_model` works on Keras 3.15. It goes through a SavedModel
+  internally; the long "Saved artifact … Captures" printout is now hidden.
+- The exported model is **333 KB** and runs in about **0.5–0.7 ms per window** on LiteRT
+  (sandbox CPU), which is negligible next to MediaPipe.
+- Test data: 240 synthetic clips, two "signers", NO_SIGN + HELLO, THANK_YOU, YES, NO, in the
+  real clip format.
+
+**Bug found: extra words between signs.**
+- **Symptom.** Clip accuracy was 100 %, but a live replay of HELLO YES THANK_YOU NO HELLO
+  captioned 9 words: `HELLO YES YES NO THANK_YOU NO YES HELLO YES`.
+- **Cause.** The Pi scores the last ~2.5 s on every frame. Most of those windows show a sign
+  only partly: it's just starting, or its tail is leaving. The model had only seen clean,
+  whole-sign clips, so it gave confident wrong answers on half-seen signs.
+- **Fix (`common/s2s/decoder.py`).**
+  - **Spliced training windows.** For each sign clip, training adds idle footage spliced onto
+    part of the sign. One window is shifted off-centre and keeps the label (80 % or more of the
+    sign in view). Two show only the start or only the end (30 % or less in view) and are
+    labelled **NO_SIGN**.
+  - **Class weights** use square-root balancing, so the extra NO_SIGN windows don't swamp the
+    signs.
+  - **Shared word rules.** `WordDecoder` now holds the word rules used by both `pi/run.py` and
+    training: the confidence threshold, the same top guess for 6 frames in a row, no repeat
+    until 0.6 s of NO_SIGN, and a **cooldown** of half a clip before a different word can
+    fire.
+- **New score in `train.py`: the live-stream check.** It plays held-out clips back to back,
+  with pauses, through the exported `.tflite` and `WordDecoder`, then counts right, wrong,
+  missed and **extra** words. On the same data:
+  - without splicing: **60/60 right but 35 extra words**;
+  - with splicing: **60/60 right, 0 extra**.
+  - `pi/run.py`'s own Recognizer now outputs exactly `HELLO YES THANK_YOU NO HELLO`.
+- **Pause between words** (synthetic data):
+
+  | Pause between signs | Result |
+  |---|---|
+  | about 1.4 s | 60/60 |
+  | about 1.0 s | 59/60 |
+  | about 0.7 s | 54/60 (6 missed) |
+
+  **Rest the hands for about a second between words.** Re-measure on real clips.
